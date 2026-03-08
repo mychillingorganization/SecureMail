@@ -1,0 +1,197 @@
+# =============================================
+# SecureMail — Docker Compose Configuration
+# Tất cả services cho hệ thống phân tích bảo mật email
+# =============================================
+
+services:
+  # --- Orchestrator (điều phối chính) ---
+  orchestrator:
+    build: ./orchestra
+    container_name: securemail-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - POSTGRES_URL=postgresql+asyncpg://securemail:${POSTGRES_PASSWORD:-securemail}@postgres:5432/securemail
+      - EMAIL_AGENT_URL=http://email-agent:8000
+      - FILE_AGENT_URL=http://file-agent:8001
+      - WEB_AGENT_URL=http://web-agent:8002
+      - RISK_WEIGHT_EMAIL=${RISK_WEIGHT_EMAIL:-0.4}
+      - RISK_WEIGHT_FILE=${RISK_WEIGHT_FILE:-0.3}
+      - RISK_WEIGHT_WEB=${RISK_WEIGHT_WEB:-0.3}
+      - EARLY_TERM_CONFIDENCE_THRESHOLD=${EARLY_TERM_CONFIDENCE_THRESHOLD:-0.95}
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-20}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      email-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- Email Agent (phân tích email) ---
+  email-agent:
+    build: ./email_agent
+    container_name: securemail-email-agent
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- File Agent (stub — phân tích tệp đính kèm) ---
+  file-agent:
+    build:
+      context: ./stubs
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        WORKDIR /app
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+        COPY file_agent_stub.py main.py
+        EXPOSE 8001
+        CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+    container_name: securemail-file-agent
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- Web Agent (stub — phân tích URL) ---
+  web-agent:
+    build:
+      context: ./stubs
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        WORKDIR /app
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+        COPY web_agent_stub.py main.py
+        EXPOSE 8002
+        CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+    container_name: securemail-web-agent
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- Ollama (LLM on-premise) ---
+  ollama:
+    image: ollama/ollama:latest
+    container_name: securemail-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- Redis (message bus + cache) ---
+  redis:
+    image: redis:7-alpine
+    container_name: securemail-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- PostgreSQL (audit log + persistence) ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: securemail-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=securemail
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-securemail}
+      - POSTGRES_DB=securemail
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securemail"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - securemail
+    restart: unless-stopped
+
+  # --- ClamAV (quét malware tệp đính kèm) ---
+  clamav:
+    image: clamav/clamav:latest
+    container_name: securemail-clamav
+    ports:
+      - "3310:3310"
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s  # ClamAV cần 2-5 phút để tải DB chữ ký
+    networks:
+      - securemail
+    restart: unless-stopped
+
+networks:
+  securemail:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  redis_data:
+  postgres_data:
+  clamav_data:
