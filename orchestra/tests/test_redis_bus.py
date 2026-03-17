@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import unittest
 from unittest.mock import AsyncMock, patch, MagicMock
 import asyncio
-import json
 
 from redis_bus import RedisBus
 

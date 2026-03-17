@@ -6,13 +6,12 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 import asyncio
-from datetime import datetime
 
 from pipeline import ReActPipeline
 from config import Settings
-from models import EmailScanRequest, Verdict, AgentResult
+from models import EmailScanRequest, Verdict
 
 
 def run_async(coro):

@@ -5,13 +5,17 @@ from unittest.mock import MagicMock, patch
 # == MOCK CÁC THƯ VIỆN ĐỂ TRÁNH LỖI KHI CHƯA CÀI ĐẶT TRÊN WINDOWS ==
 mock_spf = MagicMock()
 mock_dkim = MagicMock()
-class DKIMException(Exception): pass
+class DKIMException(Exception):
+    pass
 mock_dkim.DKIMException = DKIMException
 
 mock_checkdmarc = MagicMock()
-class DMARCRecordNotFound(Exception): pass
-class DMARCRecordIncomplete(Exception): pass
-class DMARCError(Exception): pass
+class DMARCRecordNotFound(Exception):
+    pass
+class DMARCRecordIncomplete(Exception):
+    pass
+class DMARCError(Exception):
+    pass
 mock_checkdmarc.DMARCRecordNotFound = DMARCRecordNotFound
 mock_checkdmarc.DMARCRecordIncomplete = DMARCRecordIncomplete
 mock_checkdmarc.checkdmarcError = DMARCError
@@ -22,7 +26,7 @@ sys.modules['checkdmarc'] = mock_checkdmarc
 
 # =================================================================
 
-from email_agent.protocol_verifier import ProtocolVerifier
+from email_agent.protocol_verifier import ProtocolVerifier  # noqa: E402
 
 class TestProtocolVerifier(unittest.TestCase):
     def setUp(self):

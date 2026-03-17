@@ -7,13 +7,13 @@ Run with:  python -m unittest email_agent/tests/test_redis_cache.py -v
 import json
 import time
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 from email_agent.redis_client import RedisWhitelistCache
 
 
 def _make_cache(**kwargs) -> RedisWhitelistCache:
     """Create a cache instance with a fully mocked Redis client."""
-    with patch("redis.ConnectionPool"), patch("redis.Redis") as mock_redis_cls:
+    with patch("redis.ConnectionPool"), patch("redis.Redis") as _:
         cache = RedisWhitelistCache(**kwargs)
         cache._client = MagicMock()   # replace with fresh mock after __init__
     return cache
