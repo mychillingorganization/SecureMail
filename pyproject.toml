@@ -1,0 +1,42 @@
+# ==============================================================================
+# 1. RUFF CONFIGURATION
+# ==============================================================================
+[tool.ruff]
+# Set the maximum line length (default is 88, same as Black)
+line-length = 88
+
+# Tell Ruff which Python version to target for its suggestions
+target-version = "py311"
+
+# Exclude standard directories from being scanned
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    "__pypackages__",
+    "venv",
+]
+
+[tool.ruff.lint]
+# Select which rule sets to enable. 
+# "E" and "F" are the standard Flake8 errors and pyflakes rules.
+# "I" enables isort (automatically sorts your imports).
+# "UP" enables pyupgrade (suggests modern Python syntax).
+# "B" enables flake8-bugbear (finds likely bugs and design flaws).
+select = ["E", "F", "I", "UP", "B"]
+
+# Ignore specific rules if they are too noisy
+ignore = []
+
+# ==============================================================================
+# 2. MYPY CONFIGURATION
+# ==============================================================================
+[tool.mypy]
+# Specify the Python version
+python_version = "3.11"
+
+# Force Mypy to be stricter about type checking
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true # Forces all functions to have type hints
+ignore_missing_imports = true # Prevents errors from third-party libraries without type hints
