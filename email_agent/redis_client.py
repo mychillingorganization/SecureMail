@@ -1,7 +1,7 @@
-import time
 import json
+from typing import Any
+
 import redis
-from typing import Optional, Dict, Any, List
 
 
 class RedisWhitelistCache:
@@ -22,7 +22,7 @@ class RedisWhitelistCache:
         host: str = "localhost",
         port: int = 6379,
         db: int = 0,
-        password: Optional[str] = None,
+        password: str | None = None,
         max_connections: int = 10,
         ttl: int = DEFAULT_TTL,
     ):
@@ -51,9 +51,7 @@ class RedisWhitelistCache:
         O(1) lookup via Redis EXISTS → True if whitelisted.
         """
         key = self._key(domain)
-        start = time.perf_counter()
         result = self._client.exists(key)
-        elapsed_ms = (time.perf_counter() - start) * 1000
 
         if result:
             self._hits += 1
@@ -62,7 +60,7 @@ class RedisWhitelistCache:
 
         return bool(result)
 
-    def add(self, domain: str, metadata: Optional[Dict[str, Any]] = None) -> None:
+    def add(self, domain: str, metadata: dict[str, Any] | None = None) -> None:
         """
         Add a domain to the whitelist.
         Optionally stores metadata (e.g. {"reason": "internal"}). Expires after TTL.
@@ -75,7 +73,7 @@ class RedisWhitelistCache:
         """Remove a domain from the whitelist. Returns True if it was present."""
         return bool(self._client.delete(self._key(domain)))
 
-    def bulk_add(self, domains: List[str], metadata: Optional[Dict[str, Any]] = None) -> None:
+    def bulk_add(self, domains: list[str], metadata: dict[str, Any] | None = None) -> None:
         """Add multiple domains efficiently using a Redis pipeline."""
         value = json.dumps(metadata) if metadata else "1"
         pipe = self._client.pipeline()
@@ -83,7 +81,7 @@ class RedisWhitelistCache:
             pipe.setex(self._key(domain), self.ttl, value)
         pipe.execute()
 
-    def get_metadata(self, domain: str) -> Optional[Dict[str, Any]]:
+    def get_metadata(self, domain: str) -> dict[str, Any] | None:
         """Return stored metadata for a whitelisted domain, or None."""
         raw = self._client.get(self._key(domain))
         if raw is None:
@@ -97,7 +95,7 @@ class RedisWhitelistCache:
     # Metrics
     # ------------------------------------------------------------------ #
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """Return cache hit/miss statistics."""
         total = self._hits + self._misses
         hit_rate = (self._hits / total * 100) if total > 0 else 0.0
