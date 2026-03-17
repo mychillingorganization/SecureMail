@@ -3,15 +3,15 @@ import os
 import sys
 from logging.config import fileConfig
 
-# Thêm thư mục gốc của orchestra vào sys.path để import db_models, database
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
-import db_models  # noqa: F401 — đảm bảo models được register
 from alembic import context
 
 # Import models để Alembic biết được schema
 from database import Base
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
