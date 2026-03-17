@@ -6,6 +6,7 @@ Bước 3: Act (gửi tới agents)
 Bước 4: Observe (thu thập kết quả)
 Bước 5: Reason (kết thúc sớm hoặc tính điểm)
 """
+
 import asyncio
 import logging
 import time
@@ -89,15 +90,14 @@ class ReActPipeline:
             "headers_present": list(request.headers.keys()),
             "body_length": len(request.body_text),
         }
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="PERCEIVE",
-            description=f"Nhận email {request.email_id}: "
-                        f"{len(request.attachments)} tệp đính kèm, "
-                        f"{len(request.urls)} URL, "
-                        f"body {len(request.body_text)} ký tự",
-            data=perception,
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="PERCEIVE",
+                description=f"Nhận email {request.email_id}: {len(request.attachments)} tệp đính kèm, {len(request.urls)} URL, body {len(request.body_text)} ký tự",
+                data=perception,
+            )
+        )
         logger.info(f"[Step {step}] PERCEIVE: {perception}")
 
         # ===== BƯỚC 2: REASON — Quyết định gọi agent nào =====
@@ -113,12 +113,14 @@ class ReActPipeline:
             "reason_file": "Có tệp đính kèm" if has_attachments else "Không có tệp đính kèm",
             "reason_web": "Có URL" if has_urls else "Không có URL",
         }
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="REASON",
-            description=f"Quyết định gọi agents: {', '.join(agents_to_call)}",
-            data=reasoning_data,
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="REASON",
+                description=f"Quyết định gọi agents: {', '.join(agents_to_call)}",
+                data=reasoning_data,
+            )
+        )
         logger.info(f"[Step {step}] REASON: agents={agents_to_call}")
 
         # ===== BƯỚC 3: ACT — Gửi yêu cầu tới Email Agent (luôn luôn) =====
@@ -129,24 +131,27 @@ class ReActPipeline:
             payload=self._build_email_payload(request),
         )
         agent_results.append(email_result)
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="ACT",
-            description=f"Gửi tới Email Agent → risk={email_result.risk_score:.4f}, "
-                        f"confidence={email_result.confidence:.4f}",
-            data={"agent": "email", "result_summary": email_result.model_dump()},
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="ACT",
+                description=f"Gửi tới Email Agent → risk={email_result.risk_score:.4f}, confidence={email_result.confidence:.4f}",
+                data={"agent": "email", "result_summary": email_result.model_dump()},
+            )
+        )
         logger.info(f"[Step {step}] ACT: Email Agent → risk={email_result.risk_score}")
 
         # ===== BƯỚC 4 (phần 1): Kiểm tra kết thúc sớm SAU khi có kết quả Email Agent =====
         step += 1
         should_terminate, term_reason = self.early_terminator.should_terminate(email_result)
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="REASON",
-            description=f"Kiểm tra kết thúc sớm: {'CÓ' if should_terminate else 'KHÔNG'} — {term_reason}",
-            data={"early_termination": should_terminate, "reason": term_reason},
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="REASON",
+                description=f"Kiểm tra kết thúc sớm: {'CÓ' if should_terminate else 'KHÔNG'} — {term_reason}",
+                data={"early_termination": should_terminate, "reason": term_reason},
+            )
+        )
 
         if should_terminate:
             logger.warning(f"[Step {step}] EARLY TERMINATION: {term_reason}")
@@ -213,15 +218,17 @@ class ReActPipeline:
         if not act_desc_parts:
             act_desc_parts.append("Không có agent phụ nào được gọi")
 
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="OBSERVE",
-            description=f"Thu thập kết quả: {'; '.join(act_desc_parts)}",
-            data={
-                "file_result": file_result.model_dump() if file_result else None,
-                "web_result": web_result.model_dump() if web_result else None,
-            },
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="OBSERVE",
+                description=f"Thu thập kết quả: {'; '.join(act_desc_parts)}",
+                data={
+                    "file_result": file_result.model_dump() if file_result else None,
+                    "web_result": web_result.model_dump() if web_result else None,
+                },
+            )
+        )
         logger.info(f"[Step {step}] OBSERVE: {act_desc_parts}")
 
         # ===== BƯỚC 5: REASON — Tính điểm tổng hợp =====
@@ -232,12 +239,14 @@ class ReActPipeline:
             web_score=web_result.risk_score if web_result else None,
         )
 
-        traces.append(ReasoningTrace(
-            step=step,
-            phase="REASON",
-            description=f"Điểm rủi ro tổng hợp: {risk_result.total_score:.4f} → {risk_result.verdict.value}",
-            data=risk_result.model_dump(),
-        ))
+        traces.append(
+            ReasoningTrace(
+                step=step,
+                phase="REASON",
+                description=f"Điểm rủi ro tổng hợp: {risk_result.total_score:.4f} → {risk_result.verdict.value}",
+                data=risk_result.model_dump(),
+            )
+        )
         logger.info(f"[Step {step}] REASON: total={risk_result.total_score} verdict={risk_result.verdict}")
 
         # ===== KẾT QUẢ =====

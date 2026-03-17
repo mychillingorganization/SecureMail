@@ -4,6 +4,7 @@ Unit tests for RedisWhitelistCache.
 Uses unittest.mock to patch redis.Redis — no live Redis server required.
 Run with:  python -m unittest email_agent/tests/test_redis_cache.py -v
 """
+
 import json
 import time
 import unittest
@@ -16,12 +17,11 @@ def _make_cache(**kwargs) -> RedisWhitelistCache:
     """Create a cache instance with a fully mocked Redis client."""
     with patch("redis.ConnectionPool"), patch("redis.Redis") as _:
         cache = RedisWhitelistCache(**kwargs)
-        cache._client = MagicMock()   # replace with fresh mock after __init__
+        cache._client = MagicMock()  # replace with fresh mock after __init__
     return cache
 
 
 class TestRedisWhitelistCache(unittest.TestCase):
-
     # ------------------------------------------------------------------ #
     # is_whitelisted
     # ------------------------------------------------------------------ #
@@ -29,7 +29,7 @@ class TestRedisWhitelistCache(unittest.TestCase):
     def test_is_whitelisted_returns_true_for_existing_domain(self):
         """Domain present in Redis → True, hit counter incremented."""
         cache = _make_cache()
-        cache._client.exists.return_value = 1   # Redis EXISTS returns 1
+        cache._client.exists.return_value = 1  # Redis EXISTS returns 1
 
         result = cache.is_whitelisted("google.com")
 
@@ -79,7 +79,7 @@ class TestRedisWhitelistCache(unittest.TestCase):
 
     def test_add_uses_custom_ttl(self):
         """Cache respects custom TTL passed at construction."""
-        cache = _make_cache(ttl=3600)   # 1 hour
+        cache = _make_cache(ttl=3600)  # 1 hour
         cache.add("internal.corp")
 
         ttl_used = cache._client.setex.call_args[0][1]
@@ -129,7 +129,7 @@ class TestRedisWhitelistCache(unittest.TestCase):
     def test_metrics_track_hits_and_misses(self):
         """get_metrics() returns correct counts and hit rate."""
         cache = _make_cache()
-        cache._client.exists.side_effect = [1, 1, 0]   # 2 hits, 1 miss
+        cache._client.exists.side_effect = [1, 1, 0]  # 2 hits, 1 miss
 
         cache.is_whitelisted("a.com")
         cache.is_whitelisted("b.com")
@@ -179,6 +179,7 @@ class TestRedisWhitelistCache(unittest.TestCase):
 
     def test_ping_returns_false_on_connection_error(self):
         import redis
+
         cache = _make_cache()
         cache._client.ping.side_effect = redis.ConnectionError
 

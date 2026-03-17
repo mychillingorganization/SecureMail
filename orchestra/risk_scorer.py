@@ -3,6 +3,7 @@ Composite Risk Scorer — Tính điểm rủi ro tổng hợp.
 R_total = w1*R_email + w2*R_file + w3*R_web
 Xử lý điểm thiếu bằng cách phân phối lại trọng số.
 """
+
 import logging
 
 from models import RiskResult, Verdict
@@ -73,10 +74,7 @@ class RiskScorer:
         weights_used = self._redistribute_weights(active_weights)
 
         # Tính điểm tổng hợp
-        total_score = sum(
-            weights_used[name] * active_scores[name]
-            for name in active_scores
-        )
+        total_score = sum(weights_used[name] * active_scores[name] for name in active_scores)
 
         # Clamp về [0, 1]
         total_score = max(0.0, min(1.0, total_score))
@@ -84,10 +82,7 @@ class RiskScorer:
         # Xác định verdict
         verdict = self._determine_verdict(total_score)
 
-        logger.info(
-            f"Risk score: {total_score:.4f} ({verdict.value}) | "
-            f"weights={weights_used} | scores={active_scores}"
-        )
+        logger.info(f"Risk score: {total_score:.4f} ({verdict.value}) | weights={weights_used} | scores={active_scores}")
 
         return RiskResult(
             total_score=round(total_score, 4),
@@ -111,10 +106,7 @@ class RiskScorer:
             # Edge case: không có agent nào
             return {name: 0.0 for name in active_weights}
 
-        return {
-            name: round(weight / total_weight, 4)
-            for name, weight in active_weights.items()
-        }
+        return {name: round(weight / total_weight, 4) for name, weight in active_weights.items()}
 
     def _determine_verdict(self, score: float) -> Verdict:
         """Xác định verdict dựa trên ngưỡng."""

@@ -2,6 +2,7 @@
 Database Models — ORM models cho PostgreSQL.
 Bảng: emails, reasoning_traces, agent_scores, clawback_events
 """
+
 import uuid
 from datetime import datetime
 
@@ -27,6 +28,7 @@ def generate_uuid():
 
 class EmailRecord(Base):
     """Bảng emails — lưu trữ thông tin email đã quét."""
+
     __tablename__ = "emails"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
@@ -50,6 +52,7 @@ class EmailRecord(Base):
 
 class ReasoningTraceRecord(Base):
     """Bảng reasoning_traces — dấu vết suy luận cho mỗi bước."""
+
     __tablename__ = "reasoning_traces"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
@@ -66,6 +69,7 @@ class ReasoningTraceRecord(Base):
 
 class AgentScoreRecord(Base):
     """Bảng agent_scores — điểm rủi ro từ mỗi agent."""
+
     __tablename__ = "agent_scores"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
@@ -83,6 +87,7 @@ class AgentScoreRecord(Base):
 
 class ClawbackEventRecord(Base):
     """Bảng clawback_events — sự kiện thu hồi/thay đổi phán định."""
+
     __tablename__ = "clawback_events"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)

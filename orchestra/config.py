@@ -2,6 +2,7 @@
 Cấu hình trung tâm cho Orchestrator.
 Sử dụng Pydantic BaseSettings để load từ biến môi trường.
 """
+
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
