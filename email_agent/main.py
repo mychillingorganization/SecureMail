@@ -1,6 +1,4 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Dict, Any, List
 
 app = FastAPI(title="Email Agent API", description="API cho Email Agent (SPF/DKIM/DMARC, Typosquatting, LLM Analysis)")
 

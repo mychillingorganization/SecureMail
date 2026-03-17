@@ -1,7 +1,7 @@
 import spf
 import dkim
 import checkdmarc
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 class ProtocolVerifier:
     def __init__(self):

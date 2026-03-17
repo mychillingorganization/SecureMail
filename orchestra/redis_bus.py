@@ -7,7 +7,7 @@ import json
 import uuid
 import asyncio
 import logging
-from typing import Optional, Callable, Any, Dict
+from typing import Optional, Callable
 
 import redis.asyncio as aioredis
 
