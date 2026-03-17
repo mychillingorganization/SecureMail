@@ -2,66 +2,23 @@
 Database Models — ORM models cho PostgreSQL.
 Bảng: emails, audit_logs, domain_emails, files, urls, favicons (+ junction tables)
 """
-
-import enum
 import uuid
 from datetime import datetime
-
-from database import Base
-from sqlalchemy import Column, DateTime, Enum, Float, ForeignKey, String, Table
-from sqlalchemy.dialects.postgresql import JSONB, TEXT, UUID
+from sqlalchemy import (
+    Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey, Index
+)
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
-
-# ==========================================
-# ENUMs
-# ==========================================
-
-class EmailStatusEnum(enum.Enum):
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    QUARANTINED = "quarantined"
+from database import Base
 
 
-class VerdictTypeEnum(enum.Enum):
-    SAFE = "safe"
-    SUSPICIOUS = "suspicious"
-    MALICIOUS = "malicious"
+def generate_uuid():
+    return str(uuid.uuid4())
 
 
-class IntelligenceStatusEnum(enum.Enum):
-    BENIGN = "benign"
-    SUSPICIOUS = "suspicious"
-    MALICIOUS = "malicious"
-    UNKNOWN = "unknown"
-
-
-# ==========================================
-# Junction Tables (N-N)
-# ==========================================
-
-email_urls = Table(
-    "email_urls",
-    Base.metadata,
-    Column("email_id", UUID(as_uuid=True), ForeignKey("emails.id"), primary_key=True),
-    Column("url_hash", String, ForeignKey("urls.url_hash"), primary_key=True),
-)
-
-email_files = Table(
-    "email_files",
-    Base.metadata,
-    Column("email_id", UUID(as_uuid=True), ForeignKey("emails.id"), primary_key=True),
-    Column("file_hash", String, ForeignKey("files.file_hash"), primary_key=True),
-)
-
-
-# ==========================================
-# Core Tables
-# ==========================================
-
-class Email(Base):
-    """Bảng emails — lưu trữ thông tin email đã xử lý."""
-
+class EmailRecord(Base):
+    """Bảng emails — lưu trữ thông tin email đã quét."""
     __tablename__ = "emails"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -79,10 +36,9 @@ class Email(Base):
     files = relationship("File", secondary=email_files, back_populates="emails")
 
 
-class AuditLog(Base):
-    """Bảng audit_logs — nhật ký kiểm toán bất biến cho mỗi quyết định của agent."""
-
-    __tablename__ = "audit_logs"
+class ReasoningTraceRecord(Base):
+    """Bảng reasoning_traces — dấu vết suy luận cho mỗi bước."""
+    __tablename__ = "reasoning_traces"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email_id = Column(UUID(as_uuid=True), ForeignKey("emails.id"), nullable=False, index=True)
@@ -92,41 +48,29 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
-    email = relationship("Email", back_populates="audit_logs")
+    email = relationship("EmailRecord", back_populates="reasoning_traces")
 
 
-# ==========================================
-# Intelligence Tables
-# ==========================================
+class AgentScoreRecord(Base):
+    """Bảng agent_scores — điểm rủi ro từ mỗi agent."""
+    __tablename__ = "agent_scores"
 
-class DomainEmail(Base):
-    """Bảng domain_emails — thông tin tình báo về domain/email đã thấy."""
-
-    __tablename__ = "domain_emails"
-
-    domain_email = Column(String, primary_key=True)
-    status = Column(Enum(IntelligenceStatusEnum), default=IntelligenceStatusEnum.UNKNOWN)
-    last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class File(Base):
-    """Bảng files — thông tin tình báo về file đính kèm (theo SHA-256)."""
-
-    __tablename__ = "files"
-
-    file_hash = Column(String, primary_key=True)  # SHA-256
-    status = Column(Enum(IntelligenceStatusEnum), default=IntelligenceStatusEnum.UNKNOWN)
-    file_path = Column(String, nullable=True)  # Đường dẫn lưu trữ cục bộ cho sandbox
-    last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
+    email_id = Column(String(255), ForeignKey("emails.email_id"), nullable=False, index=True)
+    agent_name = Column(String(50), nullable=False)  # email, file, web
+    risk_score = Column(Float, nullable=False)
+    confidence = Column(Float, default=0.0)
+    details = Column(JSONB)
+    processing_time_ms = Column(Float)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
     emails = relationship("Email", secondary=email_files, back_populates="files")
 
 
-class Url(Base):
-    """Bảng urls — thông tin tình báo về URL (theo hash)."""
-
-    __tablename__ = "urls"
+class ClawbackEventRecord(Base):
+    """Bảng clawback_events — sự kiện thu hồi/thay đổi phán định."""
+    __tablename__ = "clawback_events"
 
     url_hash = Column(String, primary_key=True)
     raw_url = Column(TEXT, nullable=False)
