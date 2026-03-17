@@ -14,6 +14,7 @@ import json
 import mimetypes
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from email import policy
 from email.header import decode_header
@@ -22,10 +23,8 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Set, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request, urlopen
-
 
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"()]+", re.IGNORECASE)
 HREF_PATTERN = re.compile(r"<a\b[^>]*?\bhref\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
@@ -61,10 +60,10 @@ class ParsedEmail:
 
     subject: str
     sent_at: str
-    auth_headers: Dict[str, List[str]]
-    plain_parts: List[str]
-    html_parts: List[str]
-    urls: Set[str]
+    auth_headers: dict[str, list[str]]
+    plain_parts: list[str]
+    html_parts: list[str]
+    urls: set[str]
     attachment_count: int
     linked_attachment_count: int = 0
 
@@ -74,13 +73,13 @@ class _HTMLTextExtractor(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self._chunks: List[str] = []
+        self._chunks: list[str] = []
 
     def handle_data(self, data: str) -> None:
         if data:
             self._chunks.append(data)
 
-    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}:
             self._chunks.append("\n")
 
@@ -88,13 +87,13 @@ class _HTMLTextExtractor(HTMLParser):
         return "".join(self._chunks)
 
 
-def decode_mime_header(value: Optional[str]) -> str:
+def decode_mime_header(value: str | None) -> str:
     """Decode MIME encoded header values safely."""
     if not value:
         return ""
 
     parts = decode_header(value)
-    decoded_fragments: List[str] = []
+    decoded_fragments: list[str] = []
     for part, charset in parts:
         if isinstance(part, bytes):
             encoding = charset or "utf-8"
@@ -111,7 +110,7 @@ def decode_mime_header(value: Optional[str]) -> str:
 def normalize_whitespace(text: str) -> str:
     """Collapse excessive blank lines while preserving readable text."""
     lines = [line.rstrip() for line in text.splitlines()]
-    cleaned: List[str] = []
+    cleaned: list[str] = []
     previous_blank = False
 
     for line in lines:
@@ -131,7 +130,7 @@ def normalize_for_tokens(text: str) -> str:
     text = re.sub(r"[ ]{2,}", " ", text)
 
     blocks = re.split(r"\n\s*\n+", text)
-    compact_blocks: List[str] = []
+    compact_blocks: list[str] = []
 
     for block in blocks:
         lines = [line.strip() for line in block.splitlines() if line.strip()]
@@ -224,10 +223,10 @@ def filename_from_content_disposition(content_disposition: str) -> str:
     return ""
 
 
-def download_linked_attachments(urls: Set[str], attachments_dir: Path) -> Tuple[int, Set[str]]:
+def download_linked_attachments(urls: set[str], attachments_dir: Path) -> tuple[int, set[str]]:
     """Download file-like URLs into attachments directory if not already in MIME parts."""
     saved_count = 0
-    downloaded_urls: Set[str] = set()
+    downloaded_urls: set[str] = set()
     timeout_seconds = 20
     max_download_bytes = 25 * 1024 * 1024
 
@@ -292,9 +291,9 @@ def decode_part_to_text(part) -> str:
     return payload.decode("utf-8", errors="replace")
 
 
-def extract_urls_from_text(text: str) -> Set[str]:
+def extract_urls_from_text(text: str) -> set[str]:
     """Extract URLs from plain text using regex."""
-    urls: Set[str] = set()
+    urls: set[str] = set()
     for match in URL_PATTERN.findall(text):
         normalized = match.rstrip(".,);]\"'")
         if normalized:
@@ -302,9 +301,9 @@ def extract_urls_from_text(text: str) -> Set[str]:
     return urls
 
 
-def extract_urls_from_html(html: str) -> Set[str]:
+def extract_urls_from_html(html: str) -> set[str]:
     """Extract URL values from anchor href first, then generic regex matches."""
-    urls: Set[str] = set()
+    urls: set[str] = set()
 
     try:
         from bs4 import BeautifulSoup  # type: ignore
@@ -339,9 +338,9 @@ def html_to_text(html: str) -> str:
         return normalize_whitespace(unescape(parser.get_text()))
 
 
-def collect_auth_headers(message) -> Dict[str, List[str]]:
+def collect_auth_headers(message) -> dict[str, list[str]]:
     """Collect authentication-related headers for SPF, DKIM and DMARC inspection."""
-    result: Dict[str, List[str]] = {
+    result: dict[str, list[str]] = {
         "Authentication-Results": [],
         "Received-SPF": [],
         "DKIM-Signature": [],
@@ -416,9 +415,9 @@ def parse_eml(eml_path: Path, attachments_dir: Path) -> ParsedEmail:
             sent_at = date_header
 
     auth_headers = collect_auth_headers(message)
-    plain_parts: List[str] = []
-    html_parts: List[str] = []
-    urls: Set[str] = set()
+    plain_parts: list[str] = []
+    html_parts: list[str] = []
+    urls: set[str] = set()
 
     attachment_count = 0
     attachment_index = 1
@@ -460,7 +459,7 @@ def parse_eml(eml_path: Path, attachments_dir: Path) -> ParsedEmail:
     )
 
 
-def build_output_dir(eml_path: Path, output_root: Optional[Path]) -> Path:
+def build_output_dir(eml_path: Path, output_root: Path | None) -> Path:
     """Build output directory path named after the input .eml file stem."""
     root = output_root if output_root is not None else eml_path.parent
     output_dir_name = eml_path.stem or f"{eml_path.name}_output"
@@ -494,7 +493,7 @@ def write_outputs(output_dir: Path, parsed: ParsedEmail) -> None:
     urls_file.write_text("\n".join(sorted_urls) + ("\n" if sorted_urls else ""), encoding="utf-8")
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Create and parse command line arguments."""
     parser = argparse.ArgumentParser(description="Extract data artifacts from a .eml file")
     parser.add_argument("eml_path", help="Path to input .eml file")
@@ -516,7 +515,7 @@ def validate_input_path(path_text: str) -> Path:
     return eml_path
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point."""
     try:
         args = parse_args(argv)
