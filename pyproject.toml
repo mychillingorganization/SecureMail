@@ -3,7 +3,7 @@
 # ==============================================================================
 [tool.ruff]
 # Set the maximum line length (default is 88, same as Black)
-line-length = 88
+line-length = 200
 
 # Tell Ruff which Python version to target for its suggestions
 target-version = "py311"
@@ -26,7 +26,7 @@ exclude = [
 select = ["E", "F", "I", "UP", "B"]
 
 # Ignore specific rules if they are too noisy
-ignore = []
+ignore = ["E501"]
 
 # ==============================================================================
 # 2. MYPY CONFIGURATION

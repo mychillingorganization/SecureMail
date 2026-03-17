@@ -1,9 +1,10 @@
-import unittest
-from unittest.mock import patch, MagicMock
-from email_agent.llm_analyzer import LLMContentAnalyzer
 import json
+import unittest
 import urllib.error
-import socket
+from unittest.mock import MagicMock, patch
+
+from email_agent.llm_analyzer import LLMContentAnalyzer
+
 
 class TestLLMContentAnalyzer(unittest.TestCase):
     def setUp(self):
@@ -76,7 +77,7 @@ class TestLLMContentAnalyzer(unittest.TestCase):
         
         # side_effect list: first two calls raise exception, third returns mock_response
         mock_urlopen.side_effect = [
-            socket.timeout("Timeout"),
+            TimeoutError("Timeout"),
             urllib.error.URLError("Connection reset by peer"),
             MagicMock(__enter__=MagicMock(return_value=mock_response))
         ]

@@ -4,13 +4,21 @@ Bảng: emails, reasoning_traces, agent_scores, clawback_events
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import (
-    Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey, Index
-)
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
 
 from database import Base
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import relationship
 
 
 def generate_uuid():

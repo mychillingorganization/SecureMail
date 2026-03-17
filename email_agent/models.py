@@ -1,18 +1,19 @@
-from pydantic import BaseModel
-from typing import Optional, List
 from datetime import datetime
+
+from pydantic import BaseModel
+
 
 class EmailHeaders(BaseModel):
     from_: str
     to: str
     subject: str
-    received: List[str]
-    dkim_signature: Optional[str] = None
-    return_path: Optional[str] = None
+    received: list[str]
+    dkim_signature: str | None = None
+    return_path: str | None = None
 
 class AnalyzeRequest(BaseModel):
     email_id: str
     headers: EmailHeaders
     body_text: str
-    body_html: Optional[str] = None
+    body_html: str | None = None
     timestamp: datetime

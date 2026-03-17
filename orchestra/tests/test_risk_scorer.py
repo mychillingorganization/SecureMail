@@ -1,13 +1,15 @@
 """
 Tests cho RiskScorer — 5 kịch bản kiểm thử.
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import unittest
-from risk_scorer import RiskScorer
+
 from models import Verdict
+from risk_scorer import RiskScorer
 
 
 class TestRiskScorer(unittest.TestCase):
