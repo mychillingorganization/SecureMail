@@ -1,21 +1,170 @@
 """
-Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
-Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
+Audit Logger — Ghi nhật ký kiểm toán bất biến cho mọi quyết định của agent.
+Lưu trữ Email record + AuditLog (reasoning traces, agent scores) vào PostgreSQL
+với xác minh tính toàn vẹn SHA-256.
 """
-
 import logging
-from typing import Any
+from typing import Optional, Dict, Any, List
+from datetime import datetime
 
 from database import Database
-from db_models import (
-    AgentScoreRecord,
-    ClawbackEventRecord,
-    EmailRecord,
-    ReasoningTraceRecord,
-)
-from models import EmailScanRequest, ScanResult
+from db_models import EmailRecord, ReasoningTraceRecord, AgentScoreRecord, ClawbackEventRecord
+from models import EmailScanRequest, ScanResult, AgentResult, ReasoningTrace
 
 logger = logging.getLogger(__name__)
+
+
+def _compute_hash(data: dict) -> str:
+    """Tính SHA-256 hash của payload JSONB để đảm bảo tính toàn vẹn kiểm toán."""
+    serialized = json.dumps(data, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
+class AuditLogger:
+    """
+    Ghi nhật ký kiểm toán đầy đủ cho mỗi email được phân tích.
+    Mỗi bản ghi AuditLog được bảo vệ bởi SHA-256 hash để ngăn chặn giả mạo.
+    """
+
+    def __init__(self, database: Database):
+        self.database = database
+
+    async def log_scan(self, request: EmailScanRequest, result: ScanResult):
+        """
+        Ghi toàn bộ kết quả quét vào database.
+        Tạo: 1 Email record + 1 AuditLog cho orchestrator + 1 AuditLog cho mỗi agent.
+        """
+        verdict_value = result.verdict.value.lower()
+        status = (
+            EmailStatusEnum.QUARANTINED
+            if verdict_value == "malicious"
+            else EmailStatusEnum.COMPLETED
+        )
+
+        async with self.database.get_session() as session:
+            async with session.begin():
+                # 1. Tạo Email record
+                email_record = Email(
+                    message_id=result.email_id,
+                    sender=request.headers.get("from", ""),
+                    receiver=request.headers.get("to", ""),
+                    status=status,
+                    total_risk_score=result.risk_score,
+                    final_verdict=VerdictTypeEnum(verdict_value),
+                    processed_at=datetime.utcnow(),
+                )
+                session.add(email_record)
+
+                # 2. AuditLog cho orchestrator — toàn bộ reasoning trace
+                orchestrator_trace = {
+                    "reasoning_traces": [t.model_dump() for t in result.reasoning_traces],
+                    "risk_score": result.risk_score,
+                    "confidence": result.confidence,
+                    "early_terminated": result.early_terminated,
+                    "processing_time_ms": result.processing_time_ms,
+                }
+                session.add(
+                    AuditLog(
+                        email_id=email_record.id,
+                        agent_name="orchestrator",
+                        reasoning_trace=orchestrator_trace,
+                        cryptographic_hash=_compute_hash(orchestrator_trace),
+                    )
+                )
+
+                # 3. AuditLog riêng cho mỗi agent
+                for agent_result in result.agent_results:
+                    agent_trace = agent_result.model_dump()
+                    session.add(
+                        AuditLog(
+                            email_id=email_record.id,
+                            agent_name=agent_result.agent_name,
+                            reasoning_trace=agent_trace,
+                            cryptographic_hash=_compute_hash(agent_trace),
+                        )
+                    )
+
+        logger.info(f"Audit log saved: email_id={result.email_id}, verdict={result.verdict.value}")
+
+    async def log_clawback(
+        self,
+        email_id: str,
+        original_verdict: str,
+        new_verdict: str,
+        reason: str,
+        created_by: str = "system",
+    ):
+        """Ghi sự kiện thu hồi phán định vào audit log."""
+        async with self.database.get_session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(Email).where(Email.message_id == email_id)
+                )
+                email = result.scalar_one_or_none()
+                if not email:
+                    logger.error(
+                        f"Không thể ghi clawback: không tìm thấy email {email_id} trong database"
+                    )
+                    return
+
+                clawback_data = {
+                    "original_verdict": original_verdict,
+                    "new_verdict": new_verdict,
+                    "reason": reason,
+                    "created_by": created_by,
+                }
+                session.add(
+                    AuditLog(
+                        email_id=email.id,
+                        agent_name="system",
+                        reasoning_trace=clawback_data,
+                        cryptographic_hash=_compute_hash(clawback_data),
+                    )
+                )
+        logger.info(f"Clawback logged: {email_id} {original_verdict} → {new_verdict}")
+
+    async def get_full_trace(self, email_id: str) -> dict[str, Any] | None:
+        """
+        Truy vấn toàn bộ audit trail cho một email theo message_id.
+
+        Returns:
+            Dict chứa email info và tất cả audit logs. None nếu không tìm thấy.
+        """
+        async with self.database.get_session() as session:
+            email_result = await session.execute(
+                select(Email).where(Email.message_id == email_id)
+            )
+            email = email_result.scalar_one_or_none()
+            if not email:
+                return None
+
+            logs_result = await session.execute(
+                select(AuditLog)
+                .where(AuditLog.email_id == email.id)
+                .order_by(AuditLog.created_at)
+            )
+            logs = logs_result.scalars().all()
+
+            return {
+                "email": {
+                    "message_id": email.message_id,
+                    "sender": email.sender,
+                    "receiver": email.receiver,
+                    "status": email.status.value if email.status else None,
+                    "total_risk_score": email.total_risk_score,
+                    "final_verdict": email.final_verdict.value if email.final_verdict else None,
+                    "processed_at": str(email.processed_at),
+                },
+                "audit_logs": [
+                    {
+                        "agent_name": log.agent_name,
+                        "reasoning_trace": log.reasoning_trace,
+                        "cryptographic_hash": log.cryptographic_hash,
+                        "created_at": str(log.created_at),
+                    }
+                    for log in logs
+                ],
+            }
 
 
 class AuditLogger:
