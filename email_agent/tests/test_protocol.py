@@ -28,6 +28,7 @@ sys.modules['checkdmarc'] = mock_checkdmarc
 
 from email_agent.protocol_verifier import ProtocolVerifier  # noqa: E402
 
+
 class TestProtocolVerifier(unittest.TestCase):
     def setUp(self):
         self.verifier = ProtocolVerifier()

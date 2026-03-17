@@ -1,5 +1,6 @@
-from email_agent.redis_client import RedisWhitelistCache
 import time
+
+from email_agent.redis_client import RedisWhitelistCache
 
 cache = RedisWhitelistCache(host="localhost", port=6379)
 

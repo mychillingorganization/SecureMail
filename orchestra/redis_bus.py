@@ -3,11 +3,11 @@ Redis Message Bus — Pub/Sub + Request-Response messaging.
 Kênh: agent:email:*, agent:file:*, agent:web:*, orchestrator:*
 Connection pooling với tối đa 20 kết nối.
 """
-import json
-import uuid
 import asyncio
+import json
 import logging
-from typing import Optional, Callable
+import uuid
+from collections.abc import Callable
 
 import redis.asyncio as aioredis
 
@@ -29,9 +29,9 @@ class RedisBus:
     def __init__(self, redis_url: str = "redis://redis:6379/0", max_connections: int = 20):
         self.redis_url = redis_url
         self.max_connections = max_connections
-        self._pool: Optional[aioredis.ConnectionPool] = None
-        self._client: Optional[aioredis.Redis] = None
-        self._pubsub: Optional[aioredis.client.PubSub] = None
+        self._pool: aioredis.ConnectionPool | None = None
+        self._client: aioredis.Redis | None = None
+        self._pubsub: aioredis.client.PubSub | None = None
 
     async def connect(self):
         """Khởi tạo connection pool và kết nối Redis."""

@@ -8,6 +8,7 @@ import json
 import time
 import unittest
 from unittest.mock import MagicMock, patch
+
 from email_agent.redis_client import RedisWhitelistCache
 
 

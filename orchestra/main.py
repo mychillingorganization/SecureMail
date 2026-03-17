@@ -2,17 +2,17 @@
 SecureMail Orchestrator — FastAPI Application.
 Điểm vào chính cho dịch vụ điều phối pipeline phân tích email.
 """
-from fastapi import FastAPI, HTTPException
-from contextlib import asynccontextmanager
-import time
 import logging
+import time
+from contextlib import asynccontextmanager
 
+from audit_logger import AuditLogger
 from config import get_settings
+from database import Database
+from fastapi import FastAPI, HTTPException
 from models import EmailScanRequest, ScanResult
 from pipeline import ReActPipeline
 from redis_bus import RedisBus
-from database import Database
-from audit_logger import AuditLogger
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,4 +91,7 @@ async def scan_email(request: EmailScanRequest):
         return result
     except Exception as e:
         logger.error(f"Lỗi pipeline cho email {request.email_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Pipeline error: {str(e)}",
+        ) from e
