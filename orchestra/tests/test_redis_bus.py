@@ -1,14 +1,15 @@
 """
 Tests cho RedisBus — Kiểm thử message bus.
 """
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import asyncio
-import json
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from redis_bus import RedisBus
 
@@ -19,7 +20,6 @@ def run_async(coro):
 
 
 class TestRedisBus(unittest.TestCase):
-
     # Test 1: Khởi tạo connection pool parameters
     def test_init_parameters(self):
         bus = RedisBus(redis_url="redis://localhost:6379/0", max_connections=20)
@@ -53,8 +53,8 @@ class TestRedisBus(unittest.TestCase):
         self.assertEqual(bus.max_connections, 20)
 
     # Test 6: Connect tạo pool và client
-    @patch('redis.asyncio.ConnectionPool.from_url')
-    @patch('redis.asyncio.Redis')
+    @patch("redis.asyncio.ConnectionPool.from_url")
+    @patch("redis.asyncio.Redis")
     def test_connect_creates_pool_and_client(self, mock_redis_cls, mock_pool_from_url):
         bus = RedisBus(redis_url="redis://test:6379/0", max_connections=15)
 
@@ -75,5 +75,5 @@ class TestRedisBus(unittest.TestCase):
         self.assertIsNotNone(bus._pool)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

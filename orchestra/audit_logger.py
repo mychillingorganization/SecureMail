@@ -2,13 +2,18 @@
 Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
 Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
 """
+
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Any
 
 from database import Database
-from db_models import EmailRecord, ReasoningTraceRecord, AgentScoreRecord, ClawbackEventRecord
-from models import EmailScanRequest, ScanResult, AgentResult, ReasoningTrace
+from db_models import (
+    AgentScoreRecord,
+    ClawbackEventRecord,
+    EmailRecord,
+    ReasoningTraceRecord,
+)
+from models import EmailScanRequest, ScanResult
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +95,7 @@ class AuditLogger:
                 session.add(event)
         logger.info(f"Clawback logged: {email_id} {original_verdict} → {new_verdict}")
 
-    async def get_full_trace(self, email_id: str) -> Optional[Dict[str, Any]]:
+    async def get_full_trace(self, email_id: str) -> dict[str, Any] | None:
         """
         Truy vấn reasoning trace đầy đủ cho một email.
 
@@ -102,34 +107,21 @@ class AuditLogger:
 
         async with self.database.get_session() as session:
             # Truy vấn email
-            email_result = await session.execute(
-                select(EmailRecord).where(EmailRecord.email_id == email_id)
-            )
+            email_result = await session.execute(select(EmailRecord).where(EmailRecord.email_id == email_id))
             email_record = email_result.scalar_one_or_none()
             if not email_record:
                 return None
 
             # Truy vấn reasoning traces
-            traces_result = await session.execute(
-                select(ReasoningTraceRecord)
-                .where(ReasoningTraceRecord.email_id == email_id)
-                .order_by(ReasoningTraceRecord.step)
-            )
+            traces_result = await session.execute(select(ReasoningTraceRecord).where(ReasoningTraceRecord.email_id == email_id).order_by(ReasoningTraceRecord.step))
             traces = traces_result.scalars().all()
 
             # Truy vấn agent scores
-            scores_result = await session.execute(
-                select(AgentScoreRecord)
-                .where(AgentScoreRecord.email_id == email_id)
-            )
+            scores_result = await session.execute(select(AgentScoreRecord).where(AgentScoreRecord.email_id == email_id))
             scores = scores_result.scalars().all()
 
             # Truy vấn clawback events
-            clawback_result = await session.execute(
-                select(ClawbackEventRecord)
-                .where(ClawbackEventRecord.email_id == email_id)
-                .order_by(ClawbackEventRecord.created_at)
-            )
+            clawback_result = await session.execute(select(ClawbackEventRecord).where(ClawbackEventRecord.email_id == email_id).order_by(ClawbackEventRecord.created_at))
             clawbacks = clawback_result.scalars().all()
 
             return {

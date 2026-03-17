@@ -2,9 +2,10 @@
 Database — Kết nối PostgreSQL bất đồng bộ.
 Sử dụng SQLAlchemy async engine với asyncpg.
 """
+
 import logging
-from typing import Optional
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 logger = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     """Base class cho tất cả ORM models."""
+
     pass
 
 
@@ -21,7 +23,7 @@ class Database:
     def __init__(self, url: str):
         self.url = url
         self.engine = None
-        self.session_factory: Optional[async_sessionmaker] = None
+        self.session_factory: async_sessionmaker | None = None
 
     async def connect(self):
         """Khởi tạo engine và session factory."""

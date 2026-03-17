@@ -1,13 +1,16 @@
 """
 Tests cho RiskScorer — 5 kịch bản kiểm thử.
 """
-import sys
+
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import unittest
-from risk_scorer import RiskScorer
+
 from models import Verdict
+from risk_scorer import RiskScorer
 
 
 class TestRiskScorer(unittest.TestCase):
@@ -88,5 +91,5 @@ class TestRiskScorer(unittest.TestCase):
         self.assertEqual(result.verdict, Verdict.SAFE)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
