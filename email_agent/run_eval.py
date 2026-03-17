@@ -1,5 +1,4 @@
 import csv
-import json
 import time
 import sys
 from email_agent.llm_analyzer import LLMContentAnalyzer
@@ -82,7 +81,7 @@ def run_evaluation(f):
     if correct_count >= len(test_cases):
         print("🎉 SUCCESS: All test emails classified correctly!", file=f)
     elif (correct_count / len(test_cases)) >= 0.8:
-        print(f"✅ GOOD: Accuracy >= 80%. Consider tuning the prompt for edge cases.", file=f)
+        print("✅ GOOD: Accuracy >= 80%. Consider tuning the prompt for edge cases.", file=f)
     else:
         print("⚠️ FAILED: Accuracy below 80%. Try fine-tuning the prompt or checking the model.", file=f)
 

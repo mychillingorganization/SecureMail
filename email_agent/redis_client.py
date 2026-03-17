@@ -1,4 +1,3 @@
-import time
 import json
 import redis
 from typing import Optional, Dict, Any, List
@@ -51,9 +50,7 @@ class RedisWhitelistCache:
         O(1) lookup via Redis EXISTS → True if whitelisted.
         """
         key = self._key(domain)
-        start = time.perf_counter()
         result = self._client.exists(key)
-        elapsed_ms = (time.perf_counter() - start) * 1000
 
         if result:
             self._hits += 1
