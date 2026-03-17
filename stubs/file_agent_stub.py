@@ -2,6 +2,7 @@
 Stub File Agent — Dịch vụ tạm để kiểm thử pipeline.
 Trả về điểm rủi ro giả cho tệp đính kèm.
 """
+
 from fastapi import FastAPI
 
 app = FastAPI(title="File Agent (Stub)")
@@ -21,15 +22,9 @@ async def analyze_file(request: dict) -> dict:
         "risk_score": 0.3,
         "confidence": 0.75,
         "checks": {
-            "clamav_scan": {
-                "infected": False,
-                "detail": "No threats found (stub)"
-            },
-            "file_type_analysis": {
-                "suspicious": False,
-                "types_found": [a.get("filename", "unknown") for a in attachments]
-            }
+            "clamav_scan": {"infected": False, "detail": "No threats found (stub)"},
+            "file_type_analysis": {"suspicious": False, "types_found": [a.get("filename", "unknown") for a in attachments]},
         },
         "reasoning_trace": ["Received file analysis request", "ClamAV scan (stub)", "File type check (stub)"],
-        "processing_time_ms": 50
+        "processing_time_ms": 50,
     }

@@ -2,6 +2,7 @@
 Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
 Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
 """
+
 import logging
 from typing import Any
 
@@ -106,34 +107,21 @@ class AuditLogger:
 
         async with self.database.get_session() as session:
             # Truy vấn email
-            email_result = await session.execute(
-                select(EmailRecord).where(EmailRecord.email_id == email_id)
-            )
+            email_result = await session.execute(select(EmailRecord).where(EmailRecord.email_id == email_id))
             email_record = email_result.scalar_one_or_none()
             if not email_record:
                 return None
 
             # Truy vấn reasoning traces
-            traces_result = await session.execute(
-                select(ReasoningTraceRecord)
-                .where(ReasoningTraceRecord.email_id == email_id)
-                .order_by(ReasoningTraceRecord.step)
-            )
+            traces_result = await session.execute(select(ReasoningTraceRecord).where(ReasoningTraceRecord.email_id == email_id).order_by(ReasoningTraceRecord.step))
             traces = traces_result.scalars().all()
 
             # Truy vấn agent scores
-            scores_result = await session.execute(
-                select(AgentScoreRecord)
-                .where(AgentScoreRecord.email_id == email_id)
-            )
+            scores_result = await session.execute(select(AgentScoreRecord).where(AgentScoreRecord.email_id == email_id))
             scores = scores_result.scalars().all()
 
             # Truy vấn clawback events
-            clawback_result = await session.execute(
-                select(ClawbackEventRecord)
-                .where(ClawbackEventRecord.email_id == email_id)
-                .order_by(ClawbackEventRecord.created_at)
-            )
+            clawback_result = await session.execute(select(ClawbackEventRecord).where(ClawbackEventRecord.email_id == email_id).order_by(ClawbackEventRecord.created_at))
             clawbacks = clawback_result.scalars().all()
 
             return {

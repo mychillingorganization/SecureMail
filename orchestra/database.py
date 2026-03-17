@@ -2,6 +2,7 @@
 Database — Kết nối PostgreSQL bất đồng bộ.
 Sử dụng SQLAlchemy async engine với asyncpg.
 """
+
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 class Base(DeclarativeBase):
     """Base class cho tất cả ORM models."""
+
     pass
 
 

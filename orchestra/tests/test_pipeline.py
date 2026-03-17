@@ -1,10 +1,11 @@
 """
 Tests cho ReActPipeline — Kiểm thử pipeline đầy đủ.
 """
+
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncio
 import unittest
@@ -47,8 +48,7 @@ class TestReActPipeline(unittest.TestCase):
             urls=urls or [],
         )
 
-    def _mock_email_response(self, risk_score=0.8, confidence=0.92,
-                              spf_pass=False, dkim_pass=False, dmarc_pass=False):
+    def _mock_email_response(self, risk_score=0.8, confidence=0.92, spf_pass=False, dkim_pass=False, dmarc_pass=False):
         """Tạo mock response cho Email Agent."""
         return {
             "email_id": "test-001",
@@ -69,7 +69,7 @@ class TestReActPipeline(unittest.TestCase):
         return {"email_id": "test-001", "risk_score": risk_score, "confidence": 0.70, "processing_time_ms": 30}
 
     # Test 1: Pipeline đầy đủ với tất cả agents
-    @patch('httpx.AsyncClient.post')
+    @patch("httpx.AsyncClient.post")
     def test_full_pipeline_all_agents(self, mock_post):
         request = self._make_request(
             attachments=[{"filename": "report.pdf"}],
@@ -101,7 +101,7 @@ class TestReActPipeline(unittest.TestCase):
         self.assertIn(result.verdict, [Verdict.SAFE, Verdict.SUSPICIOUS, Verdict.MALICIOUS])
 
     # Test 2: Early termination — email giả mạo rõ ràng
-    @patch('httpx.AsyncClient.post')
+    @patch("httpx.AsyncClient.post")
     def test_early_termination_spoofed_email(self, mock_post):
         request = self._make_request(
             attachments=[{"filename": "malware.exe"}],
@@ -111,8 +111,11 @@ class TestReActPipeline(unittest.TestCase):
         # Email Agent trả về: tất cả protocol fail + confidence > 0.95
         mock_resp = MagicMock()
         mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.95, confidence=0.98,
-            spf_pass=False, dkim_pass=False, dmarc_pass=False,
+            risk_score=0.95,
+            confidence=0.98,
+            spf_pass=False,
+            dkim_pass=False,
+            dmarc_pass=False,
         )
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
@@ -126,13 +129,17 @@ class TestReActPipeline(unittest.TestCase):
         self.assertEqual(result.agent_results[0].agent_name, "email")
 
     # Test 3: Email không có đính kèm, không có URL → chỉ gọi Email Agent
-    @patch('httpx.AsyncClient.post')
+    @patch("httpx.AsyncClient.post")
     def test_email_only_no_attachments_no_urls(self, mock_post):
         request = self._make_request()  # Không có attachments/urls
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.3, confidence=0.6, spf_pass=True, dkim_pass=True, dmarc_pass=True,
+            risk_score=0.3,
+            confidence=0.6,
+            spf_pass=True,
+            dkim_pass=True,
+            dmarc_pass=True,
         )
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
@@ -145,13 +152,17 @@ class TestReActPipeline(unittest.TestCase):
         self.assertEqual(result.verdict, Verdict.SAFE)  # risk_score 0.3 < 0.4
 
     # Test 4: Reasoning traces ghi đầy đủ các bước
-    @patch('httpx.AsyncClient.post')
+    @patch("httpx.AsyncClient.post")
     def test_reasoning_traces_recorded(self, mock_post):
         request = self._make_request()
 
         mock_resp = MagicMock()
         mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.5, confidence=0.7, spf_pass=True, dkim_pass=True, dmarc_pass=True,
+            risk_score=0.5,
+            confidence=0.7,
+            spf_pass=True,
+            dkim_pass=True,
+            dmarc_pass=True,
         )
         mock_resp.raise_for_status = MagicMock()
         mock_post.return_value = mock_resp
@@ -165,7 +176,7 @@ class TestReActPipeline(unittest.TestCase):
         self.assertIn("ACT", phases)
 
     # Test 5: Có đính kèm nhưng không có URL → chỉ Email + File
-    @patch('httpx.AsyncClient.post')
+    @patch("httpx.AsyncClient.post")
     def test_attachments_only_no_urls(self, mock_post):
         request = self._make_request(
             attachments=[{"filename": "doc.pdf"}],
@@ -191,5 +202,5 @@ class TestReActPipeline(unittest.TestCase):
         self.assertNotIn("web", agent_names)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

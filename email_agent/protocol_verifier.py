@@ -19,22 +19,12 @@ class ProtocolVerifier:
         try:
             # spf.check2 trả về (result, code, explanation)
             result, code, explanation = spf.check2(i=ip, s=sender, h=domain)
-            
+
             # Các kết quả SPF: pass, fail, softfail, neutral, none, permerror, temperror
             # temperror thường do DNS timeout
-            return {
-                "pass": result.lower() == "pass",
-                "result": result.lower(),
-                "detail": explanation,
-                "error": None
-            }
+            return {"pass": result.lower() == "pass", "result": result.lower(), "detail": explanation, "error": None}
         except Exception as e:
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Lỗi nội bộ khi kiểm tra SPF",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Lỗi nội bộ khi kiểm tra SPF", "error": str(e)}
 
     def verify_dkim(self, raw_email: bytes) -> dict[str, Any]:
         """
@@ -44,85 +34,42 @@ class ProtocolVerifier:
         try:
             # dkim.verify trả về True nếu chữ ký hợp lệ
             is_valid = dkim.verify(raw_email)
-            return {
-                "pass": is_valid,
-                "result": "pass" if is_valid else "fail",
-                "detail": "Chữ ký DKIM hợp lệ" if is_valid else "Chữ ký DKIM không hợp lệ hoặc bị thiếu",
-                "error": None
-            }
+            return {"pass": is_valid, "result": "pass" if is_valid else "fail", "detail": "Chữ ký DKIM hợp lệ" if is_valid else "Chữ ký DKIM không hợp lệ hoặc bị thiếu", "error": None}
         except dkim.DKIMException as e:
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Lỗi định dạng khi kiểm tra DKIM",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Lỗi định dạng khi kiểm tra DKIM", "error": str(e)}
         except Exception as e:
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Lỗi hệ thống khi kiểm tra DKIM",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Lỗi hệ thống khi kiểm tra DKIM", "error": str(e)}
 
     def verify_dmarc(self, domain: str) -> dict[str, Any]:
         """
-        Xác thực DMARC cho tên miền. 
+        Xác thực DMARC cho tên miền.
         Note: checkdmarc sẽ thực hiện DNS lookup.
         :param domain: Tên miền gửi (thường lấy từ header From)
         """
         try:
             # checkdmarc parses DMARC records
             dmarc_info = checkdmarc.check_dmarc_record(domain)
-            
+
             policy = dmarc_info.get("tags", {}).get("p", {}).get("value", "none")
             record = dmarc_info.get("record", "")
-            
+
             return {
-                "pass": True, # Nếu lấy được record dmarc hợp lệ thì pass check
+                "pass": True,  # Nếu lấy được record dmarc hợp lệ thì pass check
                 "result": "pass",
                 "detail": f"DMARC policy: {policy}",
                 "policy": policy,
                 "record": record,
-                "error": None
+                "error": None,
             }
         except checkdmarc.DMARCRecordNotFound as e:
-            return {
-                "pass": False,
-                "result": "none",
-                "detail": "Không tìm thấy bản ghi DMARC",
-                "policy": "none",
-                "record": "",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "none", "detail": "Không tìm thấy bản ghi DMARC", "policy": "none", "record": "", "error": str(e)}
         except checkdmarc.DMARCRecordIncomplete as e:
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Bản ghi DMARC không hoàn chỉnh",
-                "policy": "none",
-                "record": "",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Bản ghi DMARC không hoàn chỉnh", "policy": "none", "record": "", "error": str(e)}
         except checkdmarc.checkdmarcError as e:
             # Các lỗi khác của checkdmarc (ví dụ Timeout)
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Lỗi khi kiểm tra DMARC (có thể do DNS Timeout)",
-                "policy": "none",
-                "record": "",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Lỗi khi kiểm tra DMARC (có thể do DNS Timeout)", "policy": "none", "record": "", "error": str(e)}
         except Exception as e:
-            return {
-                "pass": False,
-                "result": "error",
-                "detail": "Lỗi DNS timeout hoặc lỗi nội bộ khác khi kiểm tra DMARC",
-                "policy": "none",
-                "record": "",
-                "error": str(e)
-            }
+            return {"pass": False, "result": "error", "detail": "Lỗi DNS timeout hoặc lỗi nội bộ khác khi kiểm tra DMARC", "policy": "none", "record": "", "error": str(e)}
 
     def verify_all(self, ip: str, sender_domain: str, sender_email: str, from_domain: str, raw_email: bytes) -> dict[str, Any]:
         """
@@ -136,11 +83,7 @@ class ProtocolVerifier:
         spf_res = self.verify_spf(ip, sender_domain, sender_email)
         dkim_res = self.verify_dkim(raw_email)
         dmarc_res = self.verify_dmarc(from_domain)
-        
+
         # Kiểm tra tính đồng nhất (Alignment) rất quan trọng trong DMARC
         # Nhưng ở bước đầu, chúng ta trả về dict tổng hợp trước.
-        return {
-            "spf": spf_res,
-            "dkim": dkim_res,
-            "dmarc": dmarc_res
-        }
+        return {"spf": spf_res, "dkim": dkim_res, "dmarc": dmarc_res}

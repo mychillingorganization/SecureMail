@@ -10,7 +10,7 @@ class LLMContentAnalyzer:
         self.model = model
         self.timeout = 10
         self.max_retries = 2
-        
+
         self.prompt_template = """You are a highly skilled cybersecurity analyst specializing in email threat detection.
             Task: Analyze the email below and classify it as either "safe" or "phishing".
 
@@ -38,48 +38,31 @@ class LLMContentAnalyzer:
 
     def analyze(self, subject: str, body: str) -> dict[str, Any]:
         prompt = self.prompt_template.format(subject=subject, body=body)
-        
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "format": "json"
-        }
-        
-        data = json.dumps(payload).encode('utf-8')
+
+        payload = {"model": self.model, "prompt": prompt, "stream": False, "format": "json"}
+
+        data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.ollama_url, data=data, headers={"Content-Type": "application/json"})
-        
+
         for attempt in range(self.max_retries + 1):
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as response:
-                    result = json.loads(response.read().decode('utf-8'))
+                    result = json.loads(response.read().decode("utf-8"))
                     response_text = result.get("response", "{}")
-                    
+
                     try:
                         parsed_intent = json.loads(response_text)
-                        
+
                         # Normalize and ensure schema
                         return {
                             "classification": parsed_intent.get("classification", "unknown"),
                             "confidence": float(parsed_intent.get("confidence", 0.0)),
-                            "reasoning": str(parsed_intent.get("reasoning", ""))
+                            "reasoning": str(parsed_intent.get("reasoning", "")),
                         }
                     except (json.JSONDecodeError, ValueError):
-                        return {
-                            "classification": "unknown",
-                            "confidence": 0.0,
-                            "reasoning": f"Failed to parse LLM response: {response_text}"
-                        }
+                        return {"classification": "unknown", "confidence": 0.0, "reasoning": f"Failed to parse LLM response: {response_text}"}
             except (urllib.error.URLError, TimeoutError) as e:
                 if attempt == self.max_retries:
-                    return {
-                        "classification": "unknown",
-                        "confidence": 0.0,
-                        "reasoning": f"LLM API request failed after {self.max_retries} retries: {str(e)}"
-                    }
-        
-        return {
-            "classification": "unknown",
-            "confidence": 0.0,
-            "reasoning": "Unknown error occurred"
-        }
+                    return {"classification": "unknown", "confidence": 0.0, "reasoning": f"LLM API request failed after {self.max_retries} retries: {str(e)}"}
+
+        return {"classification": "unknown", "confidence": 0.0, "reasoning": "Unknown error occurred"}

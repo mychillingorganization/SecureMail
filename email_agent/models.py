@@ -11,6 +11,7 @@ class EmailHeaders(BaseModel):
     dkim_signature: str | None = None
     return_path: str | None = None
 
+
 class AnalyzeRequest(BaseModel):
     email_id: str
     headers: EmailHeaders

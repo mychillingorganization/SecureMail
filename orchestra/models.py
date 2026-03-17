@@ -2,6 +2,7 @@
 Pydantic schemas cho Orchestrator.
 Định nghĩa tất cả request/response models và internal data structures.
 """
+
 import uuid
 from datetime import datetime
 from enum import StrEnum
@@ -18,6 +19,7 @@ class Verdict(StrEnum):
 
 class EmailScanRequest(BaseModel):
     """Yêu cầu quét email đầu vào."""
+
     email_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     headers: dict[str, Any] = Field(default_factory=dict)
     body_text: str = ""
@@ -29,6 +31,7 @@ class EmailScanRequest(BaseModel):
 
 class AgentResult(BaseModel):
     """Kết quả trả về từ một agent."""
+
     agent_name: str
     risk_score: float = 0.0
     confidence: float = 0.0
@@ -38,6 +41,7 @@ class AgentResult(BaseModel):
 
 class ReasoningTrace(BaseModel):
     """Một bước suy luận trong pipeline."""
+
     step: int
     phase: str  # PERCEIVE, REASON, ACT, OBSERVE
     description: str
@@ -47,6 +51,7 @@ class ReasoningTrace(BaseModel):
 
 class RiskResult(BaseModel):
     """Kết quả tính điểm rủi ro tổng hợp."""
+
     total_score: float
     verdict: Verdict
     weights_used: dict[str, float]
@@ -55,6 +60,7 @@ class RiskResult(BaseModel):
 
 class ScanResult(BaseModel):
     """Kết quả quét email cuối cùng."""
+
     email_id: str
     verdict: Verdict
     risk_score: float
