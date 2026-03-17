@@ -35,6 +35,11 @@ ignore = ["E501"]
 # Specify the Python version
 python_version = "3.11"
 
+# Resolve modules from explicit package roots to avoid collisions like
+# email_agent/tests and orchestra/tests both mapping to top-level "tests".
+explicit_package_bases = true
+namespace_packages = true
+
 # Force Mypy to be stricter about type checking
 warn_return_any = true
 warn_unused_configs = true
