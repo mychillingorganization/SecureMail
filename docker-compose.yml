@@ -80,6 +80,7 @@ services:
       dockerfile_inline: |
         FROM python:3.11-slim
         WORKDIR /app
+        RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
         COPY requirements.txt .
         RUN pip install --no-cache-dir -r requirements.txt
         COPY file_agent_stub.py main.py
@@ -98,38 +99,40 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Web Agent (Stub) ---
+  # --- Web Agent (XGBoost Phishing Detector) ---
   web-agent:
     build:
-      context: ./stubs
+      context: ./web_agent
       cache_from:
         - type=gha
       cache_to:
         - type=gha,mode=max
-      dockerfile_inline: |
-        FROM python:3.11-slim
-        WORKDIR /app
-        COPY requirements.txt .
-        RUN pip install --no-cache-dir -r requirements.txt
-        COPY web_agent_stub.py main.py
-        EXPOSE 8002
-        CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
     container_name: securemail-web-agent
     ports:
       - "8002:8002"
+    environment:
+      - MODEL_PATH=/app/xgboost_phishing_model.json
+      - WHITELIST_FILE=/app/whitelist.txt
+      - BLACKLIST_FILE=/app/blacklist.txt
+      - BLACKLIST_FETCH_TIMEOUT=8
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     networks:
       - securemail
     restart: unless-stopped
 
   # --- Ollama (Heavy ML Model - Excluded from CI) ---
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: ./ollama
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-ollama
     ports:
       - "11434:11434"

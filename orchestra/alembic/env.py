@@ -1,5 +1,11 @@
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
+
+# Thêm thư mục gốc của orchestra vào sys.path để import db_models, database
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import db_models  # noqa: F401 — đảm bảo models được register
 from alembic import context
