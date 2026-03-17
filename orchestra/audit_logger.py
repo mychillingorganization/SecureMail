@@ -3,12 +3,11 @@ Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
 Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
 """
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Optional, Dict, Any
 
 from database import Database
 from db_models import EmailRecord, ReasoningTraceRecord, AgentScoreRecord, ClawbackEventRecord
-from models import EmailScanRequest, ScanResult, AgentResult, ReasoningTrace
+from models import EmailScanRequest, ScanResult
 
 logger = logging.getLogger(__name__)
 

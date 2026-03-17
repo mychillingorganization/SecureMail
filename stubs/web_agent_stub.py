@@ -15,7 +15,6 @@ async def health_check():
 @app.post("/api/v1/analyze")
 async def analyze_urls(request: dict) -> dict:
     email_id = request.get("email_id", "unknown")
-    urls = request.get("urls", [])
     return {
         "email_id": email_id,
         "risk_score": 0.4,
