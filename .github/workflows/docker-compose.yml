@@ -1,0 +1,99 @@
+# =============================================
+# SecureMail — Docker Compose CI Workflow
+# Builds all custom service images and smoke-tests the stack.
+# Heavy optional services (ollama, clamav) are excluded from CI
+# because they pull multi-GB images and take several minutes to
+# initialise, making them impractical for automated pipelines.
+# =============================================
+
+name: Docker Compose CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docker-compose:
+    name: Build & Smoke Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Source code ────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Docker Buildx (required for dockerfile_inline support) ─
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 3. Validate compose file syntax ───────────────────────────
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+      # ── 4. Build all custom service images ────────────────────────
+      - name: Build custom service images
+        run: |
+          docker compose build \
+            orchestrator \
+            email-agent \
+            file-agent \
+            web-agent
+
+      # ── 5. Start core services ────────────────────────────────────
+      # ollama and clamav are intentionally excluded: ollama pulls a
+      # multi-GB model image and clamav needs 2–5 min to load its
+      # signature database — both would exceed CI time budgets.
+      # The email-agent health endpoint remains reachable without
+      # ollama, and ClamAV is not required for the health checks.
+      - name: Start core services
+        env:
+          POSTGRES_PASSWORD: securemail
+        run: |
+          docker compose up -d \
+            redis \
+            postgres \
+            email-agent \
+            file-agent \
+            web-agent \
+            orchestrator
+
+      # ── 6. Wait for the orchestrator to become healthy ────────────
+      # The orchestrator depends_on redis (healthy), postgres
+      # (healthy), and email-agent (healthy), so once it is reachable
+      # the whole core stack is up.
+      - name: Wait for orchestrator health
+        run: |
+          echo "Waiting for orchestrator to become healthy (up to 300 s)..."
+          timeout 300 bash -c \
+            'until curl -sf http://localhost:8080/health > /dev/null; do
+               echo "  not ready yet — retrying in 5 s"
+               sleep 5
+             done'
+          echo "Orchestrator is healthy."
+
+      # ── 7. Smoke-test every agent health endpoint ─────────────────
+      - name: Smoke test — orchestrator (/health)
+        run: curl -sf http://localhost:8080/health | tee /dev/stderr | grep -q '"ok"'
+
+      - name: Smoke test — email-agent (/health)
+        run: curl -sf http://localhost:8000/health | tee /dev/stderr | grep -q '"ok"'
+
+      - name: Smoke test — file-agent (/health)
+        run: curl -sf http://localhost:8001/health | tee /dev/stderr | grep -q '"ok"'
+
+      - name: Smoke test — web-agent (/health)
+        run: curl -sf http://localhost:8002/health | tee /dev/stderr | grep -q '"ok"'
+
+      # ── 8. Debug output on failure ────────────────────────────────
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      # ── 9. Clean up ───────────────────────────────────────────────
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
