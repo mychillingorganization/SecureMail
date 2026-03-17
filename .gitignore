@@ -208,3 +208,7 @@ __marimo__/
 
 .ruff_cache/
 .pytest_cache/
+.vscode/settings.json
+
+.ruff_cache/
+.pytest_cache/
