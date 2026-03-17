@@ -1,12 +1,16 @@
 # =============================================
 # SecureMail — Docker Compose Configuration
-# Tất cả services cho hệ thống phân tích bảo mật email
 # =============================================
 
 services:
-  # --- Orchestrator (điều phối chính) ---
+  # --- Orchestrator (Main Coordinator) ---
   orchestrator:
-    build: ./orchestra
+    build: 
+      context: ./orchestra
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-orchestrator
     ports:
       - "8080:8080"
@@ -38,9 +42,14 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Email Agent (phân tích email) ---
+  # --- Email Agent (Analysis) ---
   email-agent:
-    build: ./email_agent
+    build: 
+      context: ./email_agent
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-email-agent
     ports:
       - "8000:8000"
@@ -60,10 +69,14 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- File Agent (stub — phân tích tệp đính kèm) ---
+  # --- File Agent (Stub) ---
   file-agent:
     build:
       context: ./stubs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
       dockerfile_inline: |
         FROM python:3.11-slim
         WORKDIR /app
@@ -85,10 +98,14 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Web Agent (stub — phân tích URL) ---
+  # --- Web Agent (Stub) ---
   web-agent:
     build:
       context: ./stubs
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
       dockerfile_inline: |
         FROM python:3.11-slim
         WORKDIR /app
@@ -110,7 +127,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Ollama (LLM on-premise) ---
+  # --- Ollama (Heavy ML Model - Excluded from CI) ---
   ollama:
     image: ollama/ollama:latest
     container_name: securemail-ollama
@@ -128,7 +145,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Redis (message bus + cache) ---
+  # --- Redis (Message Bus/Cache) ---
   redis:
     image: redis:7-alpine
     container_name: securemail-redis
@@ -146,7 +163,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- PostgreSQL (audit log + persistence) ---
+  # --- PostgreSQL (Database) ---
   postgres:
     image: postgres:16-alpine
     container_name: securemail-postgres
@@ -168,7 +185,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- ClamAV (quét malware tệp đính kèm) ---
+  # --- ClamAV (Heavy Malware Scanner - Excluded from CI) ---
   clamav:
     image: clamav/clamav:latest
     container_name: securemail-clamav
@@ -181,7 +198,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 120s  # ClamAV cần 2-5 phút để tải DB chữ ký
+      start_period: 120s 
     networks:
       - securemail
     restart: unless-stopped
