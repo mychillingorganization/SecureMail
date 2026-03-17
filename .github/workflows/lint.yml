@@ -1,0 +1,46 @@
+name: Python Lint CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint:
+    name: Run Linters
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Check out the code ─────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Run Ruff Linter ────────────────────────────────────────
+      # The '--output-format=github' flag creates inline PR annotations.
+      - name: Ruff Linter
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: 'check --output-format=github'
+
+      # ── 3. Run Ruff Formatter ─────────────────────────────────────
+      # The '--check' flag ensures it fails the CI if files are unformatted
+      # (rather than formatting them ephemerally on the runner).
+      - name: Ruff Formatter
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: 'format --check'
+
+      # ── 4. Run Mypy (Type Checking) ───────────────────────────────
+      # Ruff does not do static type checking, so Mypy is still required.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install and Run Mypy
+        run: |
+          python -m pip install --upgrade pip
+          pip install mypy
+          mypy .
