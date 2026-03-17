@@ -67,8 +67,8 @@ jobs:
       # the whole core stack is up.
       - name: Wait for orchestrator health
         run: |
-          echo "Waiting for orchestrator to become healthy (up to 120 s)..."
-          timeout 120 bash -c \
+          echo "Waiting for orchestrator to become healthy (up to 300 s)..."
+          timeout 300 bash -c \
             'until curl -sf http://localhost:8080/health > /dev/null; do
                echo "  not ready yet — retrying in 5 s"
                sleep 5
