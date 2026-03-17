@@ -1,13 +1,15 @@
-import spf
-import dkim
+from typing import Any
+
 import checkdmarc
-from typing import Dict, Any
+import dkim
+import spf
+
 
 class ProtocolVerifier:
     def __init__(self):
         pass
 
-    def verify_spf(self, ip: str, domain: str, sender: str) -> Dict[str, Any]:
+    def verify_spf(self, ip: str, domain: str, sender: str) -> dict[str, Any]:
         """
         Xác thực SPF cho email.
         :param ip: IP của mail server gửi
@@ -34,7 +36,7 @@ class ProtocolVerifier:
                 "error": str(e)
             }
 
-    def verify_dkim(self, raw_email: bytes) -> Dict[str, Any]:
+    def verify_dkim(self, raw_email: bytes) -> dict[str, Any]:
         """
         Xác thực DKIM dựa trên nội dung raw của email.
         :param raw_email: Nội dung email ở dạng bytes
@@ -63,7 +65,7 @@ class ProtocolVerifier:
                 "error": str(e)
             }
 
-    def verify_dmarc(self, domain: str) -> Dict[str, Any]:
+    def verify_dmarc(self, domain: str) -> dict[str, Any]:
         """
         Xác thực DMARC cho tên miền. 
         Note: checkdmarc sẽ thực hiện DNS lookup.
@@ -122,7 +124,7 @@ class ProtocolVerifier:
                 "error": str(e)
             }
 
-    def verify_all(self, ip: str, sender_domain: str, sender_email: str, from_domain: str, raw_email: bytes) -> Dict[str, Any]:
+    def verify_all(self, ip: str, sender_domain: str, sender_email: str, from_domain: str, raw_email: bytes) -> dict[str, Any]:
         """
         Kiểm tra toàn bộ SPF, DKIM, DMARC.
         :param ip: IP người gửi (dùng cho SPF)

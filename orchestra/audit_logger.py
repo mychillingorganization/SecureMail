@@ -3,10 +3,15 @@ Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
 Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
 """
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
 
 from database import Database
-from db_models import EmailRecord, ReasoningTraceRecord, AgentScoreRecord, ClawbackEventRecord
+from db_models import (
+    AgentScoreRecord,
+    ClawbackEventRecord,
+    EmailRecord,
+    ReasoningTraceRecord,
+)
 from models import EmailScanRequest, ScanResult
 
 logger = logging.getLogger(__name__)
@@ -89,7 +94,7 @@ class AuditLogger:
                 session.add(event)
         logger.info(f"Clawback logged: {email_id} {original_verdict} → {new_verdict}")
 
-    async def get_full_trace(self, email_id: str) -> Optional[Dict[str, Any]]:
+    async def get_full_trace(self, email_id: str) -> dict[str, Any] | None:
         """
         Truy vấn reasoning trace đầy đủ cho một email.
 

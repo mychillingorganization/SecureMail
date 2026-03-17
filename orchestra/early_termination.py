@@ -3,7 +3,6 @@ Early Termination — Kết thúc sớm cho email giả mạo rõ ràng.
 Quy tắc: SPF fail + DKIM fail + DMARC fail + confidence > 0.95 → MALICIOUS ngay lập tức.
 """
 import logging
-from typing import Tuple
 
 from models import AgentResult
 
@@ -24,7 +23,7 @@ class EarlyTerminator:
     def __init__(self, confidence_threshold: float = 0.95):
         self.confidence_threshold = confidence_threshold
 
-    def should_terminate(self, email_agent_result: AgentResult) -> Tuple[bool, str]:
+    def should_terminate(self, email_agent_result: AgentResult) -> tuple[bool, str]:
         """
         Kiểm tra xem có nên kết thúc sớm không.
 

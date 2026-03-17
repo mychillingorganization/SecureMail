@@ -1,8 +1,8 @@
 import json
-import urllib.request
 import urllib.error
-import socket
-from typing import Dict, Any
+import urllib.request
+from typing import Any
+
 
 class LLMContentAnalyzer:
     def __init__(self, ollama_url: str = "http://ollama:11434/api/generate", model: str = "qwen2.5:3b"):
@@ -36,7 +36,7 @@ class LLMContentAnalyzer:
             }}
         """
 
-    def analyze(self, subject: str, body: str) -> Dict[str, Any]:
+    def analyze(self, subject: str, body: str) -> dict[str, Any]:
         prompt = self.prompt_template.format(subject=subject, body=body)
         
         payload = {
@@ -70,7 +70,7 @@ class LLMContentAnalyzer:
                             "confidence": 0.0,
                             "reasoning": f"Failed to parse LLM response: {response_text}"
                         }
-            except (urllib.error.URLError, socket.timeout, TimeoutError) as e:
+            except (urllib.error.URLError, TimeoutError) as e:
                 if attempt == self.max_retries:
                     return {
                         "classification": "unknown",

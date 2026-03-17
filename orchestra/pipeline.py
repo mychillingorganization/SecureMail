@@ -6,24 +6,22 @@ Bước 3: Act (gửi tới agents)
 Bước 4: Observe (thu thập kết quả)
 Bước 5: Reason (kết thúc sớm hoặc tính điểm)
 """
-import time
 import asyncio
 import logging
-from typing import List, Optional
+import time
 
 import httpx
-
 from config import Settings
+from early_termination import EarlyTerminator
 from models import (
-    EmailScanRequest,
-    ScanResult,
     AgentResult,
+    EmailScanRequest,
     ReasoningTrace,
+    ScanResult,
     Verdict,
 )
-from risk_scorer import RiskScorer
-from early_termination import EarlyTerminator
 from redis_bus import RedisBus
+from risk_scorer import RiskScorer
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +35,7 @@ class ReActPipeline:
     def __init__(
         self,
         settings: Settings,
-        redis_bus: Optional[RedisBus] = None,
+        redis_bus: RedisBus | None = None,
         audit_logger=None,
     ):
         self.settings = settings
@@ -55,7 +53,7 @@ class ReActPipeline:
             confidence_threshold=settings.EARLY_TERM_CONFIDENCE_THRESHOLD,
         )
 
-        self._http_client: Optional[httpx.AsyncClient] = None
+        self._http_client: httpx.AsyncClient | None = None
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         """Lazy init HTTP client."""
@@ -74,8 +72,8 @@ class ReActPipeline:
             ScanResult với verdict, risk_score, reasoning_traces
         """
         start_time = time.time()
-        traces: List[ReasoningTrace] = []
-        agent_results: List[AgentResult] = []
+        traces: list[ReasoningTrace] = []
+        agent_results: list[AgentResult] = []
         step = 0
 
         # ===== BƯỚC 1: PERCEIVE — Phân tích dữ liệu đầu vào =====
@@ -169,8 +167,8 @@ class ReActPipeline:
 
         # ===== BƯỚC 4 (phần 2): ACT — Gọi File/Web agents song song =====
         step += 1
-        file_result: Optional[AgentResult] = None
-        web_result: Optional[AgentResult] = None
+        file_result: AgentResult | None = None
+        web_result: AgentResult | None = None
 
         parallel_tasks = []
         if "file" in agents_to_call:
@@ -311,7 +309,7 @@ class ReActPipeline:
             "urls": request.urls,
         }
 
-    def _compute_aggregate_confidence(self, results: List[AgentResult]) -> float:
+    def _compute_aggregate_confidence(self, results: list[AgentResult]) -> float:
         """Tính confidence trung bình từ tất cả agents."""
         if not results:
             return 0.0

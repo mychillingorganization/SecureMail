@@ -2,8 +2,9 @@
 Cấu hình trung tâm cho Orchestrator.
 Sử dụng Pydantic BaseSettings để load từ biến môi trường.
 """
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -37,6 +38,6 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "", "case_sensitive": True}
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

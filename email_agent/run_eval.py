@@ -1,6 +1,7 @@
 import csv
-import time
 import sys
+import time
+
 from email_agent.llm_analyzer import LLMContentAnalyzer
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -15,7 +16,7 @@ def load_test_data(file_path, num_safe=25, num_phishing=25):
     safe_emails = []
     phishing_emails = []
 
-    with open(file_path, mode='r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
             text = row.get("Email Text", "")
