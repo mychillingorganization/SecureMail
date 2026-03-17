@@ -1,17 +1,18 @@
 """
 Tests cho ReActPipeline — Kiểm thử pipeline đầy đủ.
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import unittest
-from unittest.mock import patch, MagicMock
 import asyncio
+import unittest
+from unittest.mock import MagicMock, patch
 
-from pipeline import ReActPipeline
 from config import Settings
 from models import EmailScanRequest, Verdict
+from pipeline import ReActPipeline
 
 
 def run_async(coro):

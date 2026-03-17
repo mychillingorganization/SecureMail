@@ -4,7 +4,6 @@ R_total = w1*R_email + w2*R_file + w3*R_web
 Xử lý điểm thiếu bằng cách phân phối lại trọng số.
 """
 import logging
-from typing import Optional, Dict
 
 from models import RiskResult, Verdict
 
@@ -38,8 +37,8 @@ class RiskScorer:
     def compute(
         self,
         email_score: float,
-        file_score: Optional[float] = None,
-        web_score: Optional[float] = None,
+        file_score: float | None = None,
+        web_score: float | None = None,
     ) -> RiskResult:
         """
         Tính điểm rủi ro tổng hợp với xử lý điểm thiếu.
@@ -53,8 +52,8 @@ class RiskScorer:
             RiskResult với total_score, verdict, weights_used, component_scores
         """
         # Xác định trọng số có hiệu lực
-        active_weights: Dict[str, float] = {}
-        active_scores: Dict[str, float] = {}
+        active_weights: dict[str, float] = {}
+        active_scores: dict[str, float] = {}
 
         # Email Agent luôn có
         active_weights["email"] = self.w_email
@@ -101,7 +100,7 @@ class RiskScorer:
             },
         )
 
-    def _redistribute_weights(self, active_weights: Dict[str, float]) -> Dict[str, float]:
+    def _redistribute_weights(self, active_weights: dict[str, float]) -> dict[str, float]:
         """
         Phân phối lại trọng số sao cho tổng = 1.0.
         Ví dụ: nếu chỉ có email (0.4) → email = 1.0

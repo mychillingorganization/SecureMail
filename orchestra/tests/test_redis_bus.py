@@ -1,13 +1,14 @@
 """
 Tests cho RedisBus — Kiểm thử message bus.
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-import unittest
-from unittest.mock import AsyncMock, patch, MagicMock
 import asyncio
+import unittest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from redis_bus import RedisBus
 
