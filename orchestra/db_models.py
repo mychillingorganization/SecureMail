@@ -5,12 +5,28 @@ Bảng: emails, audit_logs, domain_emails, files, urls, favicons (+ junction tab
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey, Index
+    Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey, Index, Enum
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+import enum
 
 from database import Base
+
+class EmailStatusEnum(enum.Enum):
+    PROCESSING = "PROCESSING"
+    QUARANTINED = "QUARANTINED"
+    COMPLETED = "COMPLETED"
+
+class VerdictTypeEnum(enum.Enum):
+    SAFE = "SAFE"
+    SUSPICIOUS = "SUSPICIOUS"
+    MALICIOUS = "MALICIOUS"
+
+class IntelligenceStatusEnum(enum.Enum):
+    UNKNOWN = "UNKNOWN"
+    CLEAN = "CLEAN"
+    MALICIOUS = "MALICIOUS"
 
 
 def generate_uuid():
@@ -30,10 +46,10 @@ class EmailRecord(Base):
     final_verdict = Column(Enum(VerdictTypeEnum), nullable=True)
     processed_at = Column(DateTime, nullable=True)
 
-    # Relationships
-    audit_logs = relationship("AuditLog", back_populates="email", cascade="all, delete-orphan")
-    urls = relationship("Url", secondary=email_urls, back_populates="emails")
-    files = relationship("File", secondary=email_files, back_populates="emails")
+    # Relationships (Commented out to prevent missing table/variable errors)
+    # audit_logs = relationship("AuditLog", back_populates="email", cascade="all, delete-orphan")
+    # urls = relationship("Url", secondary=email_urls, back_populates="emails")
+    # files = relationship("File", secondary=email_files, back_populates="emails")
 
 
 class ReasoningTraceRecord(Base):
@@ -48,7 +64,7 @@ class ReasoningTraceRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
-    email = relationship("EmailRecord", back_populates="reasoning_traces")
+    # email = relationship("EmailRecord", back_populates="reasoning_traces")
 
 
 class AgentScoreRecord(Base):
@@ -65,7 +81,7 @@ class AgentScoreRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationship
-    emails = relationship("Email", secondary=email_files, back_populates="files")
+    # emails = relationship("Email", secondary=email_files, back_populates="files")
 
 
 class ClawbackEventRecord(Base):
@@ -73,12 +89,12 @@ class ClawbackEventRecord(Base):
     __tablename__ = "clawback_events"
 
     url_hash = Column(String, primary_key=True)
-    raw_url = Column(TEXT, nullable=False)
+    raw_url = Column(Text, nullable=False)
     status = Column(Enum(IntelligenceStatusEnum), default=IntelligenceStatusEnum.UNKNOWN)
     last_seen = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationship
-    emails = relationship("Email", secondary=email_urls, back_populates="urls")
+    # emails = relationship("Email", secondary=email_urls, back_populates="urls")
 
 
 class Favicon(Base):

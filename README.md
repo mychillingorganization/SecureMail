@@ -106,8 +106,9 @@ Once the services are running, you can access the interactive Swagger UI:
 - **Web Agent:** `http://localhost:8002/docs`
 
 ### Example Scan Request
+Use `curl.exe` on Windows PowerShell to avoid `Invoke-WebRequest` parsing errors:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/scan" \
+curl.exe -X POST "http://localhost:8000/api/v1/scan" \
      -H "Content-Type: application/json" \
      -d '{
            "email_id": "test-001",
