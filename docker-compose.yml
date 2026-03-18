@@ -115,6 +115,7 @@ services:
       - WHITELIST_FILE=/app/whitelist.txt
       - BLACKLIST_FILE=/app/blacklist.txt
       - BLACKLIST_FETCH_TIMEOUT=8
+      - POSTGRES_URL=postgresql+asyncpg://securemail:${POSTGRES_PASSWORD:-securemail}@postgres:5432/securemail
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 10s

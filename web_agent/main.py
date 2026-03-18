@@ -12,12 +12,16 @@ block at import time.
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import Column, String, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from feature_extractor import (
     HTML_DEFAULT_FEATURES,
@@ -27,20 +31,46 @@ from feature_extractor import (
 )
 from lists import is_blacklisted, is_whitelisted, load_lists
 from model import MODEL_PATH, PhishingModel
+from visual_analyzer import VisualAnalyzer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Singleton model — populated during lifespan ───────────────────────────────
 _model: PhishingModel | None = None
+_visual_analyzer: VisualAnalyzer | None = None
+_db_session_factory: sessionmaker | None = None
+
+Base = declarative_base()
+
+
+class Favicon(Base):
+    __tablename__ = "favicons"
+
+    id = Column(String, primary_key=True)
+    brand_name = Column(String, nullable=False)
+    phash_value = Column(String, nullable=False)
+    valid_domains = Column(JSONB)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load the XGBoost model and threat lists on startup; clean up on shutdown."""
-    global _model
+    global _db_session_factory, _model, _visual_analyzer
     logger.info("Web Agent starting — loading model from '%s' …", MODEL_PATH)
     _model = PhishingModel(MODEL_PATH)
+    _visual_analyzer = VisualAnalyzer(Favicon)
+
+    postgres_url = os.getenv("POSTGRES_URL")
+    if postgres_url:
+        sync_url = postgres_url.replace("+asyncpg", "+psycopg2")
+        engine = create_engine(sync_url, pool_pre_ping=True)
+        _db_session_factory = sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
+        logger.info("VisualAnalyzer DB session is enabled")
+    else:
+        _db_session_factory = None
+        logger.warning("POSTGRES_URL not set for web-agent; visual brand matching disabled")
+
     logger.info("Loading whitelist / blacklist …")
     await load_lists()
     logger.info("Web Agent is ready.")
@@ -152,6 +182,7 @@ async def _analyse_url(url: str) -> dict:
             "label": "phishing",
             "source": "blacklist",
             "html_features_used": False,
+            "visual_analysis": {"verdict": "UNKNOWN"},
         }
 
     # 2. Whitelist fast-path
@@ -164,6 +195,7 @@ async def _analyse_url(url: str) -> dict:
             "label": "safe",
             "source": "whitelist",
             "html_features_used": False,
+            "visual_analysis": {"verdict": "UNKNOWN"},
         }
 
     # 3. Feature extraction
@@ -178,6 +210,8 @@ async def _analyse_url(url: str) -> dict:
 
     # 4. Model inference (model is never None here — checked at endpoint level)
     result = _model.predict(all_features)  # type: ignore[union-attr]
+
+    visual_analysis = await _evaluate_visual(url)
 
     logger.info(
         "URL scored: %s → risk=%.4f label=%s html=%s",
@@ -194,4 +228,20 @@ async def _analyse_url(url: str) -> dict:
         "label": result["label"],
         "source": "model",
         "html_features_used": html_used,
+        "visual_analysis": visual_analysis,
     }
+
+
+async def _evaluate_visual(url: str) -> dict[str, str]:
+    if _visual_analyzer is None or _db_session_factory is None:
+        return {"verdict": "UNKNOWN"}
+
+    def _run() -> dict[str, str]:
+        with _db_session_factory() as session:
+            return _visual_analyzer.evaluate_visual_risk(session, url)
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception:
+        logger.exception("Visual analysis failed for URL: %s", url)
+        return {"verdict": "UNKNOWN"}
