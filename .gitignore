@@ -209,6 +209,27 @@ __marimo__/
 .ruff_cache/
 .pytest_cache/
 .vscode/settings.json
+plan-secureMail.prompt.md
+test.eml
+email_agent/tests/test_protocol.py
+orchestra/plan.md
+test/auth_headers.json
+test/content.txt
+test/manifest.json
+test/urls.json
+test/urls.txt
+test/attachments/112025_Ava_Visa chay quang cao_DT-1.webp
+test/attachments/112025_Ava_Visa chay quang cao.jpg
+test/attachments/Ava_BE_11.jpg
+test/attachments/footer-quang-cao.webp
+test/attachments/HEADBANNER1812.webp
+test/attachments/header-email.webp
+utils/test_parse_eml.py
+email_agent/tests/test_protocol.py
+test3.eml
+test2.eml
+test4.eml
+test_all_eml.py
 
 .ruff_cache/
 .pytest_cache/

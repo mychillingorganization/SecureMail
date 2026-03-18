@@ -1,5 +1,6 @@
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # == MOCK CÁC THƯ VIỆN ĐỂ TRÁNH LỖI KHI CHƯA CÀI ĐẶT TRÊN WINDOWS ==
@@ -44,6 +45,7 @@ from email_agent.protocol_verifier import ProtocolVerifier  # noqa: E402
 class TestProtocolVerifier(unittest.TestCase):
     def setUp(self):
         self.verifier = ProtocolVerifier()
+        self.eml_fixture = Path(__file__).resolve().parents[2] / "test.eml"
 
     # ====== TEST SPF ======
     @patch("spf.check2")
@@ -121,7 +123,7 @@ class TestProtocolVerifier(unittest.TestCase):
         self.assertEqual(res["result"], "fail")
 
     # ====== TEST DMARC ======
-    @patch("checkdmarc.check_dmarc_record")
+    @patch("email_agent.protocol_verifier.checkdmarc_dmarc.check_dmarc")
     def test_dmarc_pass(self, mock_dmarc_check):
         mock_dmarc_check.return_value = {"record": "v=DMARC1; p=reject;", "tags": {"p": {"value": "reject"}}}
         res = self.verifier.verify_dmarc("example.com")
@@ -129,7 +131,7 @@ class TestProtocolVerifier(unittest.TestCase):
         self.assertEqual(res["result"], "pass")
         self.assertEqual(res["policy"], "reject")
 
-    @patch("checkdmarc.check_dmarc_record")
+    @patch("email_agent.protocol_verifier.checkdmarc_dmarc.check_dmarc")
     def test_dmarc_none_policy(self, mock_dmarc_check):
         mock_dmarc_check.return_value = {"record": "v=DMARC1; p=none;", "tags": {"p": {"value": "none"}}}
         res = self.verifier.verify_dmarc("example.com")
@@ -137,7 +139,7 @@ class TestProtocolVerifier(unittest.TestCase):
         self.assertEqual(res["result"], "pass")
         self.assertEqual(res["policy"], "none")
 
-    @patch("checkdmarc.check_dmarc_record")
+    @patch("email_agent.protocol_verifier.checkdmarc_dmarc.check_dmarc")
     def test_dmarc_record_not_found(self, mock_dmarc_check):
         mock_dmarc_check.side_effect = sys.modules["checkdmarc"].DMARCRecordNotFound("No DMARC record")
         res = self.verifier.verify_dmarc("example.com")
@@ -145,14 +147,14 @@ class TestProtocolVerifier(unittest.TestCase):
         self.assertEqual(res["result"], "none")
         self.assertEqual(res["policy"], "none")
 
-    @patch("checkdmarc.check_dmarc_record")
+    @patch("email_agent.protocol_verifier.checkdmarc_dmarc.check_dmarc")
     def test_dmarc_record_incomplete(self, mock_dmarc_check):
         mock_dmarc_check.side_effect = sys.modules["checkdmarc"].DMARCRecordIncomplete("Incomplete record")
         res = self.verifier.verify_dmarc("example.com")
         self.assertFalse(res["pass"])
         self.assertEqual(res["result"], "error")
 
-    @patch("checkdmarc.check_dmarc_record")
+    @patch("email_agent.protocol_verifier.checkdmarc_dmarc.check_dmarc")
     def test_dmarc_dns_timeout(self, mock_dmarc_check):
         mock_dmarc_check.side_effect = Exception("DNS Timeout error")
         res = self.verifier.verify_dmarc("example.com")
@@ -165,9 +167,9 @@ class TestProtocolVerifier(unittest.TestCase):
     @patch.object(ProtocolVerifier, "verify_dkim")
     @patch.object(ProtocolVerifier, "verify_dmarc")
     def test_verify_all(self, mock_dmarc, mock_dkim, mock_spf):
-        mock_spf.return_value = {"pass": True}
-        mock_dkim.return_value = {"pass": True}
-        mock_dmarc.return_value = {"pass": True}
+        mock_spf.return_value = {"pass": True, "result": "pass", "detail": "OK", "error": None}
+        mock_dkim.return_value = {"pass": True, "result": "pass", "detail": "OK", "error": None}
+        mock_dmarc.return_value = {"pass": True, "result": "pass", "detail": "OK", "error": None, "policy": "none", "record": ""}
 
         res = self.verifier.verify_all("1.2.3.4", "example.com", "test@example.com", "example.com", b"raw")
 
@@ -177,6 +179,29 @@ class TestProtocolVerifier(unittest.TestCase):
         mock_spf.assert_called_once_with("1.2.3.4", "example.com", "test@example.com")
         mock_dkim.assert_called_once_with(b"raw")
         mock_dmarc.assert_called_once_with("example.com")
+
+    def test_verify_from_auth_headers_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Không hỗ trợ xác thực từ auth_headers"):
+            self.verifier.verify_from_auth_headers({})
+
+    def test_verify_from_auth_headers_file_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Không hỗ trợ xác thực từ auth_headers.json"):
+            self.verifier.verify_from_auth_headers_file("test/auth_headers.json")
+
+    @patch.object(ProtocolVerifier, "verify_all")
+    def test_verify_from_eml_file(self, mock_verify_all):
+        mock_verify_all.return_value = {"spf": {"pass": True}, "dkim": {"pass": True}, "dmarc": {"pass": True}}
+
+        result = self.verifier.verify_from_eml_file(self.eml_fixture)
+
+        self.assertTrue(result["spf"]["pass"])
+        mock_verify_all.assert_called_once()
+        call_kwargs = mock_verify_all.call_args.kwargs
+        self.assertEqual(call_kwargs["ip"], "103.11.173.103")
+        self.assertEqual(call_kwargs["sender_domain"], "infomkt02.vietcombank.com.vn")
+        self.assertEqual(call_kwargs["sender_email"], "info@info.vietcombank.com.vn")
+        self.assertEqual(call_kwargs["from_domain"], "info.vietcombank.com.vn")
+        self.assertIsInstance(call_kwargs["raw_email"], bytes)
 
 
 if __name__ == "__main__":
