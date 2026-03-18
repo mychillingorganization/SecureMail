@@ -3,7 +3,8 @@
 Outputs are written to a directory named after the input .eml filename:
 - auth_headers.json
 - content.txt
-- urls.txt
+- urls.json
+- manifest.json
 - attachments/
 """
 
@@ -15,7 +16,7 @@ import mimetypes
 import re
 import sys
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email import policy
 from email.header import decode_header
 from email.parser import BytesParser
@@ -23,12 +24,13 @@ from email.utils import parsedate_to_datetime
 from html import unescape
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, unquote_to_bytes, urlparse
 from urllib.request import Request, urlopen
 
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"()]+", re.IGNORECASE)
 HREF_PATTERN = re.compile(r"<a\b[^>]*?\bhref\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 INVALID_FILENAME_CHARS = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
+BIDI_CONTROL_CHARS = re.compile(r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 ATTACHMENT_EXTENSIONS = {
     ".pdf",
     ".doc",
@@ -52,6 +54,7 @@ ATTACHMENT_EXTENSIONS = {
     ".json",
     ".xml",
 }
+UNSAFE_URL_SCHEMES = ("javascript:", "data:", "vbscript:", "file:")
 
 
 @dataclass
@@ -66,6 +69,7 @@ class ParsedEmail:
     urls: set[str]
     attachment_count: int
     linked_attachment_count: int = 0
+    downloaded_attachment_urls: set[str] = field(default_factory=set)
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -74,14 +78,22 @@ class _HTMLTextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._chunks: list[str] = []
+        self._skip_depth = 0
 
     def handle_data(self, data: str) -> None:
-        if data:
+        if data and self._skip_depth == 0:
             self._chunks.append(data)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"script", "style"}:
+            self._skip_depth += 1
+            return
         if tag in {"br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"}:
             self._chunks.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in {"script", "style"} and self._skip_depth > 0:
+            self._skip_depth -= 1
 
     def get_text(self) -> str:
         return "".join(self._chunks)
@@ -148,8 +160,21 @@ def normalize_for_tokens(text: str) -> str:
 
 def sanitize_filename(name: str) -> str:
     """Remove dangerous path characters from attachment filenames."""
-    safe = INVALID_FILENAME_CHARS.sub("_", name).strip(" .")
+    safe = BIDI_CONTROL_CHARS.sub("", name)
+    safe = INVALID_FILENAME_CHARS.sub("_", safe).strip(" .")
     return safe or "attachment.bin"
+
+
+def is_scanable_url(url: str) -> bool:
+    """Allow only HTTP(S) URLs and reject unsafe pseudo-schemes."""
+    normalized = url.strip().lower()
+    if not normalized:
+        return False
+    if normalized.startswith(UNSAFE_URL_SCHEMES):
+        return False
+
+    parsed = urlparse(normalized)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def ensure_unique_path(base_dir: Path, filename: str) -> Path:
@@ -212,9 +237,16 @@ def filename_from_content_disposition(content_disposition: str) -> str:
     if not content_disposition:
         return ""
 
-    utf8_match = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", content_disposition, re.IGNORECASE)
-    if utf8_match:
-        return sanitize_filename(unquote(utf8_match.group(1)))
+    extended_match = re.search(r"filename\*\s*=\s*([^';\s]+)'[^']*'([^;]+)", content_disposition, re.IGNORECASE)
+    if extended_match:
+        charset = extended_match.group(1).strip().strip('"')
+        encoded_name = extended_match.group(2).strip().strip('"')
+        raw_name = unquote_to_bytes(encoded_name)
+        try:
+            decoded_name = raw_name.decode(charset, errors="replace")
+        except LookupError:
+            decoded_name = raw_name.decode("utf-8", errors="replace")
+        return sanitize_filename(decoded_name)
 
     basic_match = re.search(r'filename\s*=\s*"?([^";]+)"?', content_disposition, re.IGNORECASE)
     if basic_match:
@@ -227,11 +259,12 @@ def download_linked_attachments(urls: set[str], attachments_dir: Path) -> tuple[
     """Download file-like URLs into attachments directory if not already in MIME parts."""
     saved_count = 0
     downloaded_urls: set[str] = set()
-    timeout_seconds = 20
+    timeout_seconds = 12
+    read_chunk_bytes = 1024 * 1024
     max_download_bytes = 25 * 1024 * 1024
 
     for url in sorted(urls):
-        if not looks_like_attachment_url(url):
+        if not is_scanable_url(url) or not looks_like_attachment_url(url):
             continue
 
         try:
@@ -244,9 +277,28 @@ def download_linked_attachments(urls: set[str], attachments_dir: Path) -> tuple[
                 if "text/html" in content_type and "attachment" not in disposition.lower():
                     continue
 
-                data = response.read(max_download_bytes + 1)
-                if len(data) > max_download_bytes:
+                content_length_header = response.headers.get("Content-Length")
+                if content_length_header:
+                    try:
+                        if int(content_length_header) > max_download_bytes:
+                            continue
+                    except ValueError:
+                        pass
+
+                data_chunks: list[bytes] = []
+                total_bytes = 0
+                while True:
+                    chunk = response.read(read_chunk_bytes)
+                    if not chunk:
+                        break
+                    data_chunks.append(chunk)
+                    total_bytes += len(chunk)
+                    if total_bytes > max_download_bytes:
+                        break
+
+                if total_bytes > max_download_bytes:
                     continue
+                data = b"".join(data_chunks)
 
                 filename = filename_from_content_disposition(disposition)
                 if not filename:
@@ -296,7 +348,7 @@ def extract_urls_from_text(text: str) -> set[str]:
     urls: set[str] = set()
     for match in URL_PATTERN.findall(text):
         normalized = match.rstrip(".,);]\"'")
-        if normalized:
+        if normalized and is_scanable_url(normalized):
             urls.add(normalized)
     return urls
 
@@ -311,12 +363,12 @@ def extract_urls_from_html(html: str) -> set[str]:
         soup = BeautifulSoup(html, "html.parser")
         for link in soup.find_all("a", href=True):
             href = str(link.get("href", "")).strip()
-            if href:
+            if href and is_scanable_url(href):
                 urls.add(href)
     except ImportError:
         for href in HREF_PATTERN.findall(html):
             normalized_href = href.strip()
-            if normalized_href:
+            if normalized_href and is_scanable_url(normalized_href):
                 urls.add(normalized_href)
 
     urls.update(extract_urls_from_text(html))
@@ -329,6 +381,8 @@ def html_to_text(html: str) -> str:
         from bs4 import BeautifulSoup  # type: ignore
 
         soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style"]):
+            tag.decompose()
         text = soup.get_text(separator="\n")
         return normalize_whitespace(unescape(text))
     except ImportError:
@@ -430,7 +484,8 @@ def parse_eml(eml_path: Path, attachments_dir: Path) -> ParsedEmail:
         disposition = (part.get_content_disposition() or "").lower()
         filename = part.get_filename()
 
-        is_attachment = disposition == "attachment" or filename is not None
+        is_named_binary_part = filename is not None and content_type not in {"text/plain", "text/html"}
+        is_attachment = disposition == "attachment" or is_named_binary_part
         if is_attachment:
             if save_attachment(part, attachments_dir, attachment_index):
                 attachment_count += 1
@@ -488,9 +543,36 @@ def write_outputs(output_dir: Path, parsed: ParsedEmail) -> None:
     content_text = f"Subject: {parsed.subject}\nContent: {compact_body_text}\n"
     content_file.write_text(content_text, encoding="utf-8")
 
-    urls_file = output_dir / "urls.txt"
     sorted_urls = sorted(parsed.urls)
+
+    urls_json_file = output_dir / "urls.json"
+    urls_json_file.write_text(json.dumps({"urls": sorted_urls}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Backward compatibility: keep legacy line-based output during migration.
+    urls_file = output_dir / "urls.txt"
     urls_file.write_text("\n".join(sorted_urls) + ("\n" if sorted_urls else ""), encoding="utf-8")
+
+    manifest_file = output_dir / "manifest.json"
+    manifest = {
+        "schema_version": "1.1.0",
+        "subject": parsed.subject,
+        "sent_at": parsed.sent_at,
+        "counts": {
+            "urls": len(sorted_urls),
+            "mime_attachments": parsed.attachment_count,
+            "linked_attachments_downloaded": parsed.linked_attachment_count,
+            "total_attachments_saved": parsed.attachment_count + parsed.linked_attachment_count,
+        },
+        "downloaded_attachment_urls": sorted(parsed.downloaded_attachment_urls),
+        "files": {
+            "auth_headers": "auth_headers.json",
+            "content": "content.txt",
+            "urls_json": "urls.json",
+            "urls_legacy": "urls.txt",
+            "attachments": "attachments/",
+        },
+    }
+    manifest_file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -529,7 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         parsed = parse_eml(eml_path, attachments_dir)
         linked_attachment_count, downloaded_attachment_urls = download_linked_attachments(parsed.urls, attachments_dir)
         parsed.linked_attachment_count = linked_attachment_count
-        parsed.urls.difference_update(downloaded_attachment_urls)
+        parsed.downloaded_attachment_urls = downloaded_attachment_urls
         write_outputs(output_dir, parsed)
 
         print(f"[*] Extracted artifacts to: {output_dir}")
