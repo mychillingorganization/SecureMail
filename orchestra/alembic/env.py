@@ -1,11 +1,17 @@
 import asyncio
+import os
+import sys
 from logging.config import fileConfig
 
-import db_models  # noqa: F401 — đảm bảo models được register
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
 from alembic import context
 
 # Import models để Alembic biết được schema
 from database import Base
+from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
