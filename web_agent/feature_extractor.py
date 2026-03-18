@@ -310,6 +310,16 @@ async def fetch_html(url: str, timeout: float = 8.0) -> str | None:
     Returns the response text, or ``None`` when the fetch fails or the
     response is not HTML.
     """
+    _, html_content = await fetch_url_context(url, timeout=timeout)
+    return html_content
+
+
+async def fetch_url_context(url: str, timeout: float = 8.0) -> tuple[str, str | None]:
+    """Fetch URL and return (final_url, html_content).
+
+    - final_url reflects the post-redirect destination when available.
+    - html_content is ``None`` when request fails or the response is non-HTML.
+    """
     fetch_url = url if url.startswith(("http://", "https://")) else f"http://{url}"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; SecureMail-WebAgent/1.0)"}
     try:
@@ -318,10 +328,11 @@ async def fetch_html(url: str, timeout: float = 8.0) -> str | None:
         ) as client:
             response = await client.get(fetch_url, headers=headers)
             response.raise_for_status()
+            final_url = str(response.url)
             content_type = response.headers.get("content-type", "").lower()
             if content_type and "text/html" not in content_type:
-                return None
-            return response.text
+                return final_url, None
+            return final_url, response.text
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         logger.debug("HTML fetch failed for '%s': %s", url, exc)
-        return None
+        return fetch_url, None

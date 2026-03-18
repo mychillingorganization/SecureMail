@@ -4,6 +4,7 @@ Web Agent — FastAPI service for phishing URL detection.
 Endpoints:
   GET  /health           — liveness probe
   POST /api/v1/analyze   — bulk URL analysis, returns risk scores
+    POST /api/v1/analyze-urls-json — analyze urls.json payload directly
 
 The model and lists are loaded once during the FastAPI lifespan so that
 startup side-effects (remote blacklist fetch, model deserialization) never
@@ -18,7 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Column, String, create_engine
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
@@ -28,6 +29,7 @@ from feature_extractor import (
     extract_html_features,
     extract_url_features,
     fetch_html,
+    fetch_url_context,
 )
 from lists import is_blacklisted, is_whitelisted, load_lists
 from model import MODEL_PATH, PhishingModel
@@ -90,7 +92,12 @@ app = FastAPI(
 
 class AnalyzeRequest(BaseModel):
     email_id: str = "unknown"
-    urls: list[str] = []
+    urls: list[str] = Field(default_factory=list)
+
+
+class AnalyzeUrlsJsonRequest(BaseModel):
+    email_id: str = "unknown"
+    urls_json: dict[str, Any]
 
 
 class URLResult(BaseModel):
@@ -100,6 +107,7 @@ class URLResult(BaseModel):
     label: str  # "phishing" | "safe"
     source: str  # "model" | "blacklist" | "whitelist"
     html_features_used: bool
+    visual_analysis: dict[str, str]
 
 
 class AnalyzeResponse(BaseModel):
@@ -126,6 +134,24 @@ async def health_check() -> dict[str, Any]:
 
 @app.post("/api/v1/analyze", response_model=AnalyzeResponse)
 async def analyze_urls(request: AnalyzeRequest) -> AnalyzeResponse:
+    return await _run_analysis(request)
+
+
+@app.post("/api/v1/analyze-urls-json", response_model=AnalyzeResponse)
+async def analyze_urls_json(request: AnalyzeUrlsJsonRequest) -> AnalyzeResponse:
+    raw_urls = request.urls_json.get("urls")
+    if not isinstance(raw_urls, list):
+        raise HTTPException(status_code=422, detail="urls_json.urls must be a list of strings")
+    if any(not isinstance(item, str) for item in raw_urls):
+        raise HTTPException(status_code=422, detail="urls_json.urls must contain only strings")
+
+    urls = [item.strip() for item in raw_urls if item.strip()]
+
+    normalized_request = AnalyzeRequest(email_id=request.email_id, urls=urls)
+    return await _run_analysis(normalized_request)
+
+
+async def _run_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
     if _model is None:
         raise HTTPException(status_code=503, detail="Model not initialised yet")
 
@@ -172,11 +198,15 @@ async def _analyse_url(url: str) -> dict:
       2. Whitelist — immediate SAFE verdict (skips model).
       3. Feature extraction + XGBoost inference.
     """
-    # 1. Blacklist fast-path
-    if is_blacklisted(url):
+    fetched_url, html_content = await fetch_url_context(url)
+    analysis_url = fetched_url or url
+
+    # 1. Blacklist fast-path (raw + resolved URL)
+    if is_blacklisted(url) or is_blacklisted(analysis_url):
         logger.info("URL blacklisted: %s", url)
         return {
-            "url": url,
+            "url": analysis_url,
+            "input_url": url,
             "risk_score": 0.99,
             "confidence": 0.98,
             "label": "phishing",
@@ -185,11 +215,12 @@ async def _analyse_url(url: str) -> dict:
             "visual_analysis": {"verdict": "UNKNOWN"},
         }
 
-    # 2. Whitelist fast-path
-    if is_whitelisted(url):
+    # 2. Whitelist fast-path (raw + resolved URL)
+    if is_whitelisted(url) or is_whitelisted(analysis_url):
         logger.info("URL whitelisted: %s", url)
         return {
-            "url": url,
+            "url": analysis_url,
+            "input_url": url,
             "risk_score": 0.01,
             "confidence": 0.98,
             "label": "safe",
@@ -199,8 +230,7 @@ async def _analyse_url(url: str) -> dict:
         }
 
     # 3. Feature extraction
-    url_features = extract_url_features(url)
-    html_content = await fetch_html(url)
+    url_features = extract_url_features(analysis_url)
     html_used = html_content is not None
     html_features = (
         extract_html_features(html_content) if html_used else dict(HTML_DEFAULT_FEATURES)
@@ -211,18 +241,19 @@ async def _analyse_url(url: str) -> dict:
     # 4. Model inference (model is never None here — checked at endpoint level)
     result = _model.predict(all_features)  # type: ignore[union-attr]
 
-    visual_analysis = await _evaluate_visual(url)
+    visual_analysis = await _evaluate_visual(analysis_url)
 
     logger.info(
         "URL scored: %s → risk=%.4f label=%s html=%s",
-        url,
+        analysis_url,
         result["risk_score"],
         result["label"],
         html_used,
     )
 
     return {
-        "url": url,
+        "url": analysis_url,
+        "input_url": url,
         "risk_score": result["risk_score"],
         "confidence": result["confidence"],
         "label": result["label"],
