@@ -74,6 +74,42 @@ class TestRedisBus(unittest.TestCase):
         )
         self.assertIsNotNone(bus._pool)
 
+    # Test 7: _wait_for_response timeout chính xác khi không có message
+    def test_wait_for_response_times_out(self):
+        bus = RedisBus()
+
+        pubsub = AsyncMock()
+        pubsub.get_message = AsyncMock(return_value=None)
+
+        with self.assertRaises(TimeoutError):
+            run_async(bus._wait_for_response(pubsub, request_id="req-1", timeout=0.05))
+
+    # Test 8: _wait_for_response bỏ qua response request_id không khớp
+    def test_wait_for_response_skips_mismatched_request_id(self):
+        bus = RedisBus()
+
+        pubsub = AsyncMock()
+        pubsub.get_message = AsyncMock(
+            side_effect=[
+                {"type": "message", "data": '{"request_id": "wrong-id", "ok": true}'},
+                {"type": "message", "data": '{"request_id": "req-1", "ok": true}'},
+            ]
+        )
+
+        result = run_async(bus._wait_for_response(pubsub, request_id="req-1", timeout=0.5))
+        self.assertEqual(result.get("request_id"), "req-1")
+        self.assertTrue(result.get("ok"))
+
+    # Test 9: _wait_for_response vẫn tương thích khi payload không có request_id
+    def test_wait_for_response_allows_legacy_payload_without_request_id(self):
+        bus = RedisBus()
+
+        pubsub = AsyncMock()
+        pubsub.get_message = AsyncMock(return_value={"type": "message", "data": '{"ok": true}'})
+
+        result = run_async(bus._wait_for_response(pubsub, request_id="req-1", timeout=0.5))
+        self.assertTrue(result.get("ok"))
+
 
 if __name__ == "__main__":
     unittest.main()
