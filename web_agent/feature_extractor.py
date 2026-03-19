@@ -9,10 +9,12 @@ Two stages:
 Callers should always merge both dicts before passing to the model.
 """
 
+import asyncio
 import ipaddress
 import logging
 import re
-from urllib.parse import urlparse
+import socket
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -55,6 +57,8 @@ _RE_DISPLAY_NONE = re.compile(
 )
 _RE_EMAIL = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 _RE_TAGS = re.compile(r"<[^>]+>")
+
+MAX_REDIRECT_HOPS = 5
 
 # Default HTML features returned when the page cannot be fetched / parsed.
 HTML_DEFAULT_FEATURES: dict[str, int | float] = {
@@ -310,29 +314,111 @@ async def fetch_html(url: str, timeout: float = 8.0) -> str | None:
     Returns the response text, or ``None`` when the fetch fails or the
     response is not HTML.
     """
-    _, html_content = await fetch_url_context(url, timeout=timeout)
+    _, html_content, _ = await fetch_url_context(url, timeout=timeout)
     return html_content
 
 
-async def fetch_url_context(url: str, timeout: float = 8.0) -> tuple[str, str | None]:
-    """Fetch URL and return (final_url, html_content).
+async def fetch_url_context(url: str, timeout: float = 8.0) -> tuple[str, str | None, list[str]]:
+    """Fetch URL and return (final_url, html_content, redirection_chain).
 
     - final_url reflects the post-redirect destination when available.
     - html_content is ``None`` when request fails or the response is non-HTML.
+    - redirection_chain is a list of URLs visited during redirection (including the initial URL).
     """
-    fetch_url = url if url.startswith(("http://", "https://")) else f"http://{url}"
+    fetch_url = _normalize_fetch_url(url)
     headers = {"User-Agent": "Mozilla/5.0 (compatible; SecureMail-WebAgent/1.0)"}
+    chain: list[str] = [fetch_url]
+    if not await _is_safe_public_url(fetch_url):
+        logger.info("Blocked URL fetch by SSRF guard: %s", fetch_url)
+        return fetch_url, None, chain
+
     try:
-        async with httpx.AsyncClient(
-            timeout=timeout, follow_redirects=True
-        ) as client:
-            response = await client.get(fetch_url, headers=headers)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            current_url = fetch_url
+            response: httpx.Response | None = None
+
+            for _ in range(MAX_REDIRECT_HOPS + 1):
+                response = await client.get(current_url, headers=headers)
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+                    next_url = urljoin(str(response.url), location)
+                    chain.append(next_url)
+                    if not await _is_safe_public_url(next_url):
+                        logger.info(
+                            "Blocked redirect by SSRF guard: %s -> %s",
+                            current_url,
+                            next_url,
+                        )
+                        return current_url, None, chain
+                    current_url = next_url
+                    continue
+                break
+
+            if response is None:
+                return fetch_url, None, chain
+
             response.raise_for_status()
             final_url = str(response.url)
             content_type = response.headers.get("content-type", "").lower()
             if content_type and "text/html" not in content_type:
-                return final_url, None
-            return final_url, response.text
+                return final_url, None, chain
+            return final_url, response.text, chain
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         logger.debug("HTML fetch failed for '%s': %s", url, exc)
-        return fetch_url, None
+        return fetch_url, None, chain
+
+
+def _normalize_fetch_url(url: str) -> str:
+    stripped = str(url).strip()
+    return stripped if stripped.startswith(("http://", "https://")) else f"http://{stripped}"
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    try:
+        ip_obj = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+
+    return not (
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
+    )
+
+
+async def _is_safe_public_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+
+    if parsed.scheme not in {"http", "https"}:
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    # Direct IP host
+    try:
+        ipaddress.ip_address(hostname)
+        return _is_public_ip(hostname)
+    except ValueError:
+        pass
+
+    # DNS host: all resolved addresses must be public
+    try:
+        addrinfos = await asyncio.to_thread(socket.getaddrinfo, hostname, None)
+    except Exception:
+        return False
+
+    if not addrinfos:
+        return False
+
+    addresses = {info[4][0] for info in addrinfos if info and len(info) >= 5 and info[4]}
+    return bool(addresses) and all(_is_public_ip(address) for address in addresses)
