@@ -4,13 +4,13 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first (layer-cache friendly)
+# Install dependencies (from project root)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source files
-COPY *.py ./
-COPY xgboost_phishing_model.json ./
+COPY web_agent/*.py ./
+COPY web_agent/xgboost_phishing_model.json ./
 
 # Optional list files (mount or bake in)
 # COPY whitelist.txt blacklist.txt ./

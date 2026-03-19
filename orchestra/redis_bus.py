@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import uuid
+from contextlib import suppress
 from collections.abc import Callable
 
 import redis.asyncio as aioredis
@@ -87,7 +88,7 @@ class RedisBus:
             logger.debug(f"Published request {request_id} to {channel}:request")
 
             # Chờ response với timeout
-            response = await self._wait_for_response(pubsub, timeout)
+            response = await self._wait_for_response(pubsub, request_id=request_id, timeout=timeout)
             return response
 
         finally:
@@ -95,18 +96,49 @@ class RedisBus:
             await pubsub.unsubscribe(response_channel)
             await pubsub.close()
 
-    async def _wait_for_response(self, pubsub, timeout: float) -> dict:
-        """Chờ response từ pubsub với timeout."""
-        deadline = asyncio.get_event_loop().time() + timeout
-        async for message in pubsub.listen():
-            if message["type"] == "message":
-                try:
-                    return json.loads(message["data"])
-                except (json.JSONDecodeError, TypeError):
-                    return {"raw": message["data"]}
-            if asyncio.get_event_loop().time() > deadline:
+    async def _wait_for_response(self, pubsub, request_id: str, timeout: float) -> dict:
+        """Chờ response từ pubsub với timeout cứng và kiểm tra request_id."""
+        poll_interval = 0.1
+        deadline = asyncio.get_running_loop().time() + timeout
+
+        while True:
+            if asyncio.get_running_loop().time() > deadline:
                 raise TimeoutError(f"Response timeout sau {timeout}s")
-        raise TimeoutError("PubSub stream kết thúc bất ngờ")
+
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=poll_interval)
+            if message is None:
+                continue
+
+            payload = self._parse_message_data(message.get("data"))
+            if self._is_matching_response(payload, request_id=request_id):
+                return payload
+
+    def _parse_message_data(self, raw_data) -> dict:
+        """Parse dữ liệu message từ Redis thành dict."""
+        if isinstance(raw_data, dict):
+            return raw_data
+        try:
+            parsed = json.loads(raw_data)
+            if isinstance(parsed, dict):
+                return parsed
+            return {"raw": parsed}
+        except (json.JSONDecodeError, TypeError):
+            return {"raw": raw_data}
+
+    def _is_matching_response(self, payload: dict, request_id: str) -> bool:
+        """Kiểm tra payload response có khớp request_id hay không."""
+        payload_request_id = payload.get("request_id")
+        if payload_request_id is None:
+            # Kênh response đã là duy nhất theo request_id; cho phép tương thích ngược.
+            return True
+        if payload_request_id != request_id:
+            logger.warning(
+                "Bỏ qua response không khớp request_id: expected=%s actual=%s",
+                request_id,
+                payload_request_id,
+            )
+            return False
+        return True
 
     async def subscribe(self, channel_pattern: str, callback: Callable):
         """
@@ -116,16 +148,22 @@ class RedisBus:
         if not self._client:
             raise RuntimeError("RedisBus chưa kết nối. Gọi connect() trước.")
 
-        self._pubsub = self._client.pubsub()
-        await self._pubsub.psubscribe(channel_pattern)
+        pubsub = self._client.pubsub()
+        self._pubsub = pubsub
+        await pubsub.psubscribe(channel_pattern)
 
-        async for message in self._pubsub.listen():
-            if message["type"] == "pmessage":
-                try:
-                    data = json.loads(message["data"])
-                except (json.JSONDecodeError, TypeError):
-                    data = {"raw": message["data"]}
-                await callback(message["channel"], data)
+        try:
+            async for message in pubsub.listen():
+                if message["type"] == "pmessage":
+                    data = self._parse_message_data(message.get("data"))
+                    await callback(message["channel"], data)
+        finally:
+            with suppress(Exception):
+                await pubsub.punsubscribe(channel_pattern)
+            with suppress(Exception):
+                await pubsub.close()
+            if self._pubsub is pubsub:
+                self._pubsub = None
 
     async def respond(self, response_channel: str, payload: dict):
         """Gửi response đến kênh response cụ thể."""
@@ -134,7 +172,9 @@ class RedisBus:
     async def close(self):
         """Đóng tất cả kết nối."""
         if self._pubsub:
-            await self._pubsub.close()
+            with suppress(Exception):
+                await self._pubsub.close()
+            self._pubsub = None
         if self._client:
             await self._client.close()
         if self._pool:
