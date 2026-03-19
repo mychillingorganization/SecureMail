@@ -18,9 +18,9 @@ graph TD
     C --> E[Web Agent]
     C --> F[File Agent]
     D --> G[Ollama / Llama 3]
-    E --> H[XGBoost Model]
+    E --> H[XGBoost & SSL Analysis]
     F --> I[Sandbox / Static Analysis]
-    B --> J[(PostgreSQL Audit)]
+    B --> J[(Postgres Audit)]
     B --> K[(Redis Bus)]
 ```
 
@@ -28,10 +28,10 @@ graph TD
 
 | Component | Responsibility | Tech Stack |
 | :--- | :--- | :--- |
-| **Orchestrator** | Pipeline management, Risk Scoring, Audit Logging | FastAPI, SQLAlchemy, Redis |
-| **Email Agent** | SPF/DKIM/DMARC, Typosquatting, LLM Intent Analysis | Ollama (Llama 3), NeMo Guardrails, dkimpy |
-| **Web Agent** | URL Phishing Detection, HTML Feature Extraction | XGBoost, Playwright (planned), BeautifulSoup4 |
-| **File Agent** | Attachment Analysis (Static & Dynamic) | ClamAV, YARA, Wine (Sandbox) |
+| **Orchestrator** | Pipeline management, Risk Scoring, Audit Logging | FastAPI, SQLAlchemy, Redis, PostgreSQL |
+| **Email Agent** | SPF/DKIM/DMARC, Typosquatting, LLM Intent Analysis | Ollama (Llama 3), dkimpy |
+| **Web Agent** | URL Phishing Detection, SSL/TLS Heuristics | XGBoost, stdlib `ssl`/`socket`, BeautifulSoup4 |
+| **File Agent** | Attachment Analysis (Static & Dynamic) | ClamAV, YARA (planned) |
 
 ---
 
@@ -79,8 +79,9 @@ The first line of defense. It verifies the authenticity of the sender and uses a
 ### Web Agent
 Analyzes all URLs found within the email body.
 - **XGBoost Inference:** Uses a trained model (70 features) to predict URL maliciousness in <10ms.
-- **HTML Extraction:** Fetches page content asynchronously to detect DOM-based phishing indicators.
+- **SSL/TLS Analysis:** Performs real-time certificate inspection (Age, Issuer, SANs). Flags newly-issued certificates (<30 days) as HIGH risk.
 - **Threat Lists:** Integrated async loading of remote and local blacklists/whitelists.
+- **Signal Fusion:** Blends ML scores with SSL heuristics (e.g., HIGH-risk SSL adds +0.20 to the risk score).
 
 ### Orchestrator & Pipeline
 The brain of the system.
