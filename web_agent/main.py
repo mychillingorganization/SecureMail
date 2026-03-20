@@ -116,10 +116,11 @@ class AnalyzeResponse(BaseModel):
 
 @app.get("/health")
 async def health_check() -> dict[str, Any]:
+    model_loaded = _model is not None
     return {
-        "status": "ok",
+        "status": "ok" if model_loaded else "degraded",
         "service": "web-agent",
-        "model_loaded": _model is not None,
+        "model_loaded": model_loaded,
     }
 
 
