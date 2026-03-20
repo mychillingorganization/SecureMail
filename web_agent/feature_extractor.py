@@ -335,36 +335,41 @@ async def fetch_url_context(url: str, timeout: float = 8.0) -> tuple[str, str | 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
             current_url = fetch_url
-            response: httpx.Response | None = None
 
             for _ in range(MAX_REDIRECT_HOPS + 1):
-                response = await client.get(current_url, headers=headers)
-                if response.status_code in {301, 302, 303, 307, 308}:
-                    location = response.headers.get("location")
-                    if not location:
-                        break
-                    next_url = urljoin(str(response.url), location)
-                    chain.append(next_url)
-                    if not await _is_safe_public_url(next_url):
-                        logger.info(
-                            "Blocked redirect by SSRF guard: %s -> %s",
-                            current_url,
-                            next_url,
-                        )
-                        return current_url, None, chain
-                    current_url = next_url
-                    continue
-                break
+                async with client.stream("GET", current_url, headers=headers) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("location")
+                        if not location:
+                            return str(response.url), None, chain
+                        next_url = urljoin(str(response.url), location)
+                        chain.append(next_url)
+                        if not await _is_safe_public_url(next_url):
+                            logger.info(
+                                "Blocked redirect by SSRF guard: %s -> %s",
+                                current_url,
+                                next_url,
+                            )
+                            return current_url, None, chain
+                        current_url = next_url
+                        continue
+                    
+                    response.raise_for_status()
+                    final_url = str(response.url)
+                    content_type = response.headers.get("content-type", "").lower()
+                    if content_type and "text/html" not in content_type:
+                        return final_url, None, chain
 
-            if response is None:
-                return fetch_url, None, chain
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > 2 * 1024 * 1024:
+                            logger.warning("HTML body exceeds 2MB limit for %s, truncating", final_url)
+                            break
+                            
+                    return final_url, body.decode("utf-8", errors="ignore"), chain
 
-            response.raise_for_status()
-            final_url = str(response.url)
-            content_type = response.headers.get("content-type", "").lower()
-            if content_type and "text/html" not in content_type:
-                return final_url, None, chain
-            return final_url, response.text, chain
+            return fetch_url, None, chain
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         logger.debug("HTML fetch failed for '%s': %s", url, exc)
         return fetch_url, None, chain
