@@ -1,6 +1,7 @@
 """
 Pydantic schemas cho Orchestrator.
-Định nghĩa tất cả request/response models và internal data structures.
+Định nghĩa request/response models theo PRD improve_plan.md.
+Verdict: PASS | WARNING | DANGER
 """
 
 import uuid
@@ -12,15 +13,32 @@ from pydantic import BaseModel, Field
 
 
 class Verdict(StrEnum):
-    SAFE = "SAFE"
-    SUSPICIOUS = "SUSPICIOUS"
-    MALICIOUS = "MALICIOUS"
+    """Verdict cuối cùng theo PRD Section 3."""
+    PASS = "PASS"
+    WARNING = "WARNING"
+    DANGER = "DANGER"
+
+
+class EmailStatus(StrEnum):
+    """Trạng thái xử lý email."""
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    QUARANTINED = "quarantined"
+
+
+class ThreatStatus(StrEnum):
+    """Trạng thái mối đe dọa cho file/url/domain."""
+    BENIGN = "benign"
+    SUSPICIOUS = "suspicious"
+    MALICIOUS = "malicious"
+    UNKNOWN = "unknown"
 
 
 class EmailScanRequest(BaseModel):
     """Yêu cầu quét email đầu vào."""
 
     email_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    message_id: str | None = None  # RFC 5322 Message-ID từ header
     headers: dict[str, Any] = Field(default_factory=dict)
     body_text: str = ""
     body_html: str | None = None
@@ -32,7 +50,7 @@ class EmailScanRequest(BaseModel):
 class AgentResult(BaseModel):
     """Kết quả trả về từ một agent."""
 
-    agent_name: str
+    agent_name: str  # Orchestrator | Email Agent | File Agent | Web Agent
     risk_score: float = 0.0
     confidence: float = 0.0
     details: dict[str, Any] = Field(default_factory=dict)
@@ -59,13 +77,25 @@ class RiskResult(BaseModel):
 
 
 class ScanResult(BaseModel):
-    """Kết quả quét email cuối cùng."""
+    """
+    Kết quả quét email cuối cùng — theo PRD Section 6.
+    Output JSON:
+    {
+        "final_status": "PASS | WARNING | DANGER",
+        "issue_count": 0,
+        "termination_reason": "...",
+        "execution_logs": [...]
+    }
+    """
 
     email_id: str
-    verdict: Verdict
-    risk_score: float
-    confidence: float
+    final_status: Verdict
+    issue_count: int = 0
+    termination_reason: str | None = None
+    risk_score: float = 0.0
+    confidence: float = 0.0
     agent_results: list[AgentResult] = Field(default_factory=list)
     reasoning_traces: list[ReasoningTrace] = Field(default_factory=list)
+    execution_logs: list[str] = Field(default_factory=list)
     early_terminated: bool = False
     processing_time_ms: float = 0.0

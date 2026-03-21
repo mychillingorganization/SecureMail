@@ -1,6 +1,10 @@
 """
-Early Termination — Kết thúc sớm cho email giả mạo rõ ràng.
-Quy tắc: SPF fail + DKIM fail + DMARC fail + confidence > 0.95 → MALICIOUS ngay lập tức.
+Early Termination — Kill Switch logic theo PRD Section 4.
+
+Bypass issue_count nếu:
+1. Authentication Failure: protocol_verifier returns FAIL
+2. Known Threat: file hash/URL/domain definitively malicious or on Blacklist
+3. Threshold Exceeded: issue_count >= 2
 """
 
 import logging
@@ -12,71 +16,98 @@ logger = logging.getLogger(__name__)
 
 class EarlyTerminator:
     """
-    Phát hiện email giả mạo rõ ràng và kết thúc pipeline sớm.
+    Kill Switch engine — kiểm tra các điều kiện kết thúc sớm.
 
-    Quy tắc kết thúc sớm:
-    - SPF + DKIM + DMARC đều thất bại
-    - Email Agent confidence > ngưỡng (mặc định 0.95)
-    → Phán định MALICIOUS ngay, không gọi File/Web agent
-    → Giảm thời gian xử lý 20-40% cho email giả mạo rõ ràng
+    PRD Section 4 — Critical Termination Protocols:
+    1. Auth Failure: check_auth() returns FAIL → DANGER
+    2. Known Threat: malware/phishing flagged → DANGER
+    3. issue_count >= 2 → DANGER
     """
 
-    def __init__(self, confidence_threshold: float = 0.95):
-        self.confidence_threshold = confidence_threshold
-
-    def should_terminate(self, email_agent_result: AgentResult) -> tuple[bool, str]:
+    def check_auth_failure(self, auth_results: dict[str, str]) -> tuple[bool, str]:
         """
-        Kiểm tra xem có nên kết thúc sớm không.
+        Kill Switch #1: Authentication Failure.
+        Nếu bất kỳ protocol (SPF, DKIM, DMARC) nào trả về FAIL → DANGER.
 
         Args:
-            email_agent_result: Kết quả từ Email Agent
+            auth_results: {"spf": "PASS"|"FAIL", "dkim": "PASS"|"FAIL", "dmarc": "PASS"|"FAIL"}
 
         Returns:
-            (should_terminate, reason) - tuple gồm boolean và lý do
+            (should_terminate, reason)
         """
-        details = email_agent_result.details
-        checks = details.get("checks", {})
+        failed_protocols = []
+        for protocol in ["spf", "dkim", "dmarc"]:
+            if auth_results.get(protocol, "PASS").upper() == "FAIL":
+                failed_protocols.append(protocol.upper())
 
-        # Kiểm tra SPF
-        spf_result = checks.get("spf", {})
-        spf_failed = not spf_result.get("pass", True)
-
-        # Kiểm tra DKIM
-        dkim_result = checks.get("dkim", {})
-        dkim_failed = not dkim_result.get("pass", True)
-
-        # Kiểm tra DMARC
-        dmarc_result = checks.get("dmarc", {})
-        dmarc_failed = not dmarc_result.get("pass", True)
-
-        # Kiểm tra confidence
-        confidence = email_agent_result.confidence
-        high_confidence = confidence > self.confidence_threshold
-
-        # Tất cả điều kiện phải thỏa mãn
-        all_protocols_failed = spf_failed and dkim_failed and dmarc_failed
-
-        if all_protocols_failed and high_confidence:
-            reason = (
-                f"Kết thúc sớm: SPF={spf_result.get('result', 'fail')}, "
-                f"DKIM={dkim_result.get('result', 'fail')}, "
-                f"DMARC={dmarc_result.get('result', 'fail')}, "
-                f"confidence={confidence:.4f} > {self.confidence_threshold}"
-            )
-            logger.warning(f"EARLY TERMINATION: {reason}")
+        if failed_protocols:
+            reason = f"Auth Failure: {', '.join(failed_protocols)} failed"
+            logger.warning(f"KILL SWITCH: {reason}")
             return True, reason
 
-        # Không kết thúc sớm — ghi lý do
-        reasons_not_triggered = []
-        if not spf_failed:
-            reasons_not_triggered.append("SPF passed")
-        if not dkim_failed:
-            reasons_not_triggered.append("DKIM passed")
-        if not dmarc_failed:
-            reasons_not_triggered.append("DMARC passed")
-        if not high_confidence:
-            reasons_not_triggered.append(f"confidence={confidence:.4f} <= {self.confidence_threshold}")
+        return False, "All authentication protocols passed"
 
-        reason = f"Không kết thúc sớm: {', '.join(reasons_not_triggered)}"
-        logger.debug(reason)
-        return False, reason
+    def check_known_threat(
+        self,
+        hash_results: list[dict] | None = None,
+        agent_result: AgentResult | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Kill Switch #2: Known Threat (Malware/Phishing).
+        Nếu bất kỳ file hash, URL, hoặc domain nào bị flag là definitively malicious.
+
+        Args:
+            hash_results: kết quả từ scan_hash, list of {"hash": "...", "status": "SAFE"|"MALICIOUS"}
+            agent_result: kết quả từ agent (File/Web) chứa malware/phishing flag
+
+        Returns:
+            (should_terminate, reason)
+        """
+        # Check hash scan results
+        if hash_results:
+            for result in hash_results:
+                if result.get("status", "").upper() == "MALICIOUS":
+                    reason = f"Known Threat: File hash {result.get('hash', 'unknown')[:16]}... is MALICIOUS"
+                    logger.warning(f"KILL SWITCH: {reason}")
+                    return True, reason
+
+        # Check agent results for definitive malware/phishing flags
+        if agent_result and agent_result.details:
+            details = agent_result.details
+
+            # File Agent: definitive malware detection
+            if details.get("malware_detected") is True:
+                reason = f"Known Threat: {agent_result.agent_name} detected definitive malware"
+                logger.warning(f"KILL SWITCH: {reason}")
+                return True, reason
+
+            # Web Agent: blacklisted URL/domain or phishing
+            if details.get("blacklisted") is True:
+                reason = f"Known Threat: {agent_result.agent_name} detected blacklisted URL/domain"
+                logger.warning(f"KILL SWITCH: {reason}")
+                return True, reason
+
+            if details.get("phishing_detected") is True:
+                reason = f"Known Threat: {agent_result.agent_name} detected phishing"
+                logger.warning(f"KILL SWITCH: {reason}")
+                return True, reason
+
+        return False, "No known threats detected"
+
+    def check_issue_threshold(self, issue_count: int) -> tuple[bool, str]:
+        """
+        Kill Switch #3: Threshold Exceeded.
+        Nếu issue_count >= 2 → DANGER.
+
+        Args:
+            issue_count: current issue counter
+
+        Returns:
+            (should_terminate, reason)
+        """
+        if issue_count >= 2:
+            reason = f"Threshold Exceeded: issue_count={issue_count} >= 2"
+            logger.warning(f"KILL SWITCH: {reason}")
+            return True, reason
+
+        return False, f"issue_count={issue_count} < 2, within threshold"

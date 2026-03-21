@@ -16,7 +16,7 @@ from redis_bus import RedisBus
 
 def run_async(coro):
     """Helper để chạy async test."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 class TestRedisBus(unittest.TestCase):

@@ -1,7 +1,7 @@
 """
 Composite Risk Scorer — Tính điểm rủi ro tổng hợp.
 R_total = w1*R_email + w2*R_file + w3*R_web
-Xử lý điểm thiếu bằng cách phân phối lại trọng số.
+Verdict: PASS (issue_count=0), WARNING (issue_count=1), DANGER (issue_count>=2)
 """
 
 import logging
@@ -18,7 +18,11 @@ class RiskScorer:
     Công thức: R_total = w1*R_email + w2*R_file + w3*R_web
     - Nếu không có tệp đính kèm → R_file = 0, trọng số phân phối lại
     - Nếu không có URL → R_web = 0, trọng số phân phối lại
-    - Verdict: >= 0.7 → MALICIOUS, >= 0.4 → SUSPICIOUS, else SAFE
+
+    Verdict mapping (PRD Section 3):
+    - issue_count == 0: PASS
+    - issue_count == 1: WARNING (proceed)
+    - issue_count >= 2: DANGER (halt)
     """
 
     def __init__(
@@ -44,11 +48,6 @@ class RiskScorer:
         """
         Tính điểm rủi ro tổng hợp với xử lý điểm thiếu.
 
-        Args:
-            email_score: Điểm rủi ro từ Email Agent (luôn có)
-            file_score: Điểm rủi ro từ File Agent (None nếu không có đính kèm)
-            web_score: Điểm rủi ro từ Web Agent (None nếu không có URL)
-
         Returns:
             RiskResult với total_score, verdict, weights_used, component_scores
         """
@@ -60,29 +59,28 @@ class RiskScorer:
         active_weights["email"] = self.w_email
         active_scores["email"] = email_score
 
-        # File Agent
         if file_score is not None:
             active_weights["file"] = self.w_file
             active_scores["file"] = file_score
 
-        # Web Agent
         if web_score is not None:
             active_weights["web"] = self.w_web
             active_scores["web"] = web_score
 
-        # Phân phối lại trọng số nếu có agent bị thiếu
+        # Phân phối lại trọng số
         weights_used = self._redistribute_weights(active_weights)
 
         # Tính điểm tổng hợp
         total_score = sum(weights_used[name] * active_scores[name] for name in active_scores)
-
-        # Clamp về [0, 1]
         total_score = max(0.0, min(1.0, total_score))
 
-        # Xác định verdict
+        # Xác định verdict from score thresholds
         verdict = self._determine_verdict(total_score)
 
-        logger.info(f"Risk score: {total_score:.4f} ({verdict.value}) | weights={weights_used} | scores={active_scores}")
+        logger.info(
+            f"Risk score: {total_score:.4f} ({verdict.value}) | "
+            f"weights={weights_used} | scores={active_scores}"
+        )
 
         return RiskResult(
             total_score=round(total_score, 4),
@@ -96,23 +94,20 @@ class RiskScorer:
         )
 
     def _redistribute_weights(self, active_weights: dict[str, float]) -> dict[str, float]:
-        """
-        Phân phối lại trọng số sao cho tổng = 1.0.
-        Ví dụ: nếu chỉ có email (0.4) → email = 1.0
-        Nếu có email (0.4) + web (0.3) → email = 0.4/0.7, web = 0.3/0.7
-        """
+        """Phân phối lại trọng số sao cho tổng = 1.0."""
         total_weight = sum(active_weights.values())
         if total_weight == 0:
-            # Edge case: không có agent nào
             return {name: 0.0 for name in active_weights}
-
         return {name: round(weight / total_weight, 4) for name, weight in active_weights.items()}
 
     def _determine_verdict(self, score: float) -> Verdict:
-        """Xác định verdict dựa trên ngưỡng."""
+        """
+        Xác định verdict dựa trên ngưỡng điểm số.
+        Mapping: >= 0.7 → DANGER, >= 0.4 → WARNING, else PASS
+        """
         if score >= self.malicious_threshold:
-            return Verdict.MALICIOUS
+            return Verdict.DANGER
         elif score >= self.suspicious_threshold:
-            return Verdict.SUSPICIOUS
+            return Verdict.WARNING
         else:
-            return Verdict.SAFE
+            return Verdict.PASS

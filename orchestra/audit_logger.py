@@ -1,18 +1,19 @@
 """
-Audit Logger — Ghi nhật ký kiểm toán cho mọi quyết định.
-Lưu trữ reasoning traces, agent scores, và scan results vào PostgreSQL.
+Audit Logger — Ghi nhật ký kiểm toán theo PRD improve_plan.md.
+
+Sử dụng bảng audit_logs mới với:
+- agent_name: Orchestrator | Email Agent | File Agent | Web Agent
+- reasoning_trace: JSONB chứa toàn bộ trace
+- cryptographic_hash: hash chống giả mạo
 """
 
+import hashlib
+import json
 import logging
 from typing import Any
 
 from database import Database
-from db_models import (
-    AgentScoreRecord,
-    ClawbackEventRecord,
-    EmailRecord,
-    ReasoningTraceRecord,
-)
+from db_models import AuditLogRecord, EmailRecord
 from models import EmailScanRequest, ScanResult
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 class AuditLogger:
     """
-    Ghi nhật ký kiểm toán đầy đủ cho mỗi email được phân tích.
-    Hỗ trợ truy vấn ngược reasoning trace từ email_id.
+    Ghi nhật ký kiểm toán theo PRD schema.
+    Mỗi email scan tạo 1 EmailRecord + N AuditLogRecords (1 per agent).
     """
 
     def __init__(self, database: Database):
@@ -30,141 +31,126 @@ class AuditLogger:
     async def log_scan(self, request: EmailScanRequest, result: ScanResult):
         """
         Ghi toàn bộ kết quả quét vào database.
-        Bao gồm: email record, reasoning traces, agent scores.
+        Bao gồm: email record + audit logs per agent.
         """
         async with self.database.get_session() as session:
             async with session.begin():
                 # 1. Ghi email record
                 email_record = EmailRecord(
-                    email_id=result.email_id,
+                    message_id=request.message_id or request.headers.get("message-id"),
                     sender=request.headers.get("from", ""),
-                    recipient=request.headers.get("to", ""),
-                    subject=request.headers.get("subject", ""),
-                    verdict=result.verdict.value,
-                    risk_score=result.risk_score,
-                    confidence=result.confidence,
-                    early_terminated=result.early_terminated,
-                    processing_time_ms=result.processing_time_ms,
-                    raw_request=request.model_dump(mode="json"),
+                    receiver=request.headers.get("to", ""),
+                    status="quarantined" if result.final_status.value == "DANGER" else "completed",
+                    total_risk_score=result.risk_score,
+                    final_verdict=self._map_verdict_to_db(result.final_status.value),
                 )
                 session.add(email_record)
+                await session.flush()  # Get the generated ID
 
-                # 2. Ghi reasoning traces
-                for trace in result.reasoning_traces:
-                    trace_record = ReasoningTraceRecord(
-                        email_id=result.email_id,
-                        step=trace.step,
-                        phase=trace.phase,
-                        description=trace.description,
-                        data=trace.data,
-                    )
-                    session.add(trace_record)
-
-                # 3. Ghi agent scores
-                for agent_result in result.agent_results:
-                    score_record = AgentScoreRecord(
-                        email_id=result.email_id,
-                        agent_name=agent_result.agent_name,
-                        risk_score=agent_result.risk_score,
-                        confidence=agent_result.confidence,
-                        details=agent_result.details,
-                        processing_time_ms=agent_result.processing_time_ms,
-                    )
-                    session.add(score_record)
-
-        logger.info(f"Audit log saved: email_id={result.email_id}, verdict={result.verdict.value}")
-
-    async def log_clawback(
-        self,
-        email_id: str,
-        original_verdict: str,
-        new_verdict: str,
-        reason: str,
-        created_by: str = "system",
-    ):
-        """Ghi sự kiện thu hồi phán định."""
-        async with self.database.get_session() as session:
-            async with session.begin():
-                event = ClawbackEventRecord(
-                    email_id=email_id,
-                    original_verdict=original_verdict,
-                    new_verdict=new_verdict,
-                    reason=reason,
-                    created_by=created_by,
+                # 2. Ghi orchestrator audit log (full pipeline trace)
+                orchestrator_trace = {
+                    "final_status": result.final_status.value,
+                    "issue_count": result.issue_count,
+                    "termination_reason": result.termination_reason,
+                    "execution_logs": result.execution_logs,
+                    "reasoning_traces": [t.model_dump(mode="json") for t in result.reasoning_traces],
+                    "processing_time_ms": result.processing_time_ms,
+                    "early_terminated": result.early_terminated,
+                }
+                orchestrator_hash = self._compute_hash(orchestrator_trace)
+                orchestrator_log = AuditLogRecord(
+                    email_id=email_record.id,
+                    agent_name="Orchestrator",
+                    reasoning_trace=orchestrator_trace,
+                    cryptographic_hash=orchestrator_hash,
                 )
-                session.add(event)
-        logger.info(f"Clawback logged: {email_id} {original_verdict} → {new_verdict}")
+                session.add(orchestrator_log)
+
+                # 3. Ghi per-agent audit logs
+                for agent_result in result.agent_results:
+                    agent_trace = agent_result.model_dump(mode="json")
+                    agent_hash = self._compute_hash(agent_trace)
+                    agent_log = AuditLogRecord(
+                        email_id=email_record.id,
+                        agent_name=self._format_agent_name(agent_result.agent_name),
+                        reasoning_trace=agent_trace,
+                        cryptographic_hash=agent_hash,
+                    )
+                    session.add(agent_log)
+
+        logger.info(
+            f"Audit log saved: email_id={result.email_id}, "
+            f"verdict={result.final_status.value}, "
+            f"agents={len(result.agent_results)}"
+        )
 
     async def get_full_trace(self, email_id: str) -> dict[str, Any] | None:
         """
-        Truy vấn reasoning trace đầy đủ cho một email.
-
-        Returns:
-            Dict chứa email info, reasoning traces, agent scores, clawback events.
-            None nếu không tìm thấy.
+        Truy vấn audit trail đầy đủ cho một email.
+        Returns dict chứa email info + all audit logs, hoặc None.
         """
         from sqlalchemy import select
 
         async with self.database.get_session() as session:
-            # Truy vấn email
-            email_result = await session.execute(select(EmailRecord).where(EmailRecord.email_id == email_id))
+            # Query email record
+            email_result = await session.execute(
+                select(EmailRecord).where(EmailRecord.id == email_id)
+            )
             email_record = email_result.scalar_one_or_none()
             if not email_record:
                 return None
 
-            # Truy vấn reasoning traces
-            traces_result = await session.execute(select(ReasoningTraceRecord).where(ReasoningTraceRecord.email_id == email_id).order_by(ReasoningTraceRecord.step))
-            traces = traces_result.scalars().all()
-
-            # Truy vấn agent scores
-            scores_result = await session.execute(select(AgentScoreRecord).where(AgentScoreRecord.email_id == email_id))
-            scores = scores_result.scalars().all()
-
-            # Truy vấn clawback events
-            clawback_result = await session.execute(select(ClawbackEventRecord).where(ClawbackEventRecord.email_id == email_id).order_by(ClawbackEventRecord.created_at))
-            clawbacks = clawback_result.scalars().all()
+            # Query audit logs
+            logs_result = await session.execute(
+                select(AuditLogRecord)
+                .where(AuditLogRecord.email_id == email_id)
+                .order_by(AuditLogRecord.created_at)
+            )
+            logs = logs_result.scalars().all()
 
             return {
                 "email": {
-                    "email_id": email_record.email_id,
+                    "id": email_record.id,
+                    "message_id": email_record.message_id,
                     "sender": email_record.sender,
-                    "recipient": email_record.recipient,
-                    "subject": email_record.subject,
-                    "verdict": email_record.verdict,
-                    "risk_score": email_record.risk_score,
-                    "confidence": email_record.confidence,
-                    "early_terminated": email_record.early_terminated,
-                    "processing_time_ms": email_record.processing_time_ms,
-                    "created_at": str(email_record.created_at),
+                    "receiver": email_record.receiver,
+                    "status": email_record.status,
+                    "total_risk_score": email_record.total_risk_score,
+                    "final_verdict": email_record.final_verdict,
+                    "processed_at": str(email_record.processed_at),
                 },
-                "reasoning_traces": [
+                "audit_logs": [
                     {
-                        "step": t.step,
-                        "phase": t.phase,
-                        "description": t.description,
-                        "data": t.data,
-                        "created_at": str(t.created_at),
+                        "agent_name": log.agent_name,
+                        "reasoning_trace": log.reasoning_trace,
+                        "cryptographic_hash": log.cryptographic_hash,
+                        "created_at": str(log.created_at),
                     }
-                    for t in traces
-                ],
-                "agent_scores": [
-                    {
-                        "agent_name": s.agent_name,
-                        "risk_score": s.risk_score,
-                        "confidence": s.confidence,
-                        "details": s.details,
-                        "processing_time_ms": s.processing_time_ms,
-                    }
-                    for s in scores
-                ],
-                "clawback_events": [
-                    {
-                        "original_verdict": c.original_verdict,
-                        "new_verdict": c.new_verdict,
-                        "reason": c.reason,
-                        "created_by": c.created_by,
-                        "created_at": str(c.created_at),
-                    }
-                    for c in clawbacks
+                    for log in logs
                 ],
             }
+
+    # ===== HELPERS =====
+
+    def _compute_hash(self, data: dict) -> str:
+        """Compute SHA-256 hash of trace data for tamper-proof audit."""
+        serialized = json.dumps(data, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode()).hexdigest()
+
+    def _format_agent_name(self, name: str) -> str:
+        """Format agent name to match PRD spec."""
+        mapping = {
+            "email": "Email Agent",
+            "file": "File Agent",
+            "web": "Web Agent",
+        }
+        return mapping.get(name, name)
+
+    def _map_verdict_to_db(self, verdict: str) -> str:
+        """Map PRD verdict (PASS/WARNING/DANGER) to DB enum (safe/suspicious/malicious)."""
+        mapping = {
+            "PASS": "safe",
+            "WARNING": "suspicious",
+            "DANGER": "malicious",
+        }
+        return mapping.get(verdict, "safe")

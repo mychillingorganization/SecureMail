@@ -230,3 +230,6 @@ test3.eml
 test2.eml
 test4.eml
 test_all_eml.py
+plan.md
+orchestra/AGENT_INTEGRATION_GUIDE.md
+.gitignore
