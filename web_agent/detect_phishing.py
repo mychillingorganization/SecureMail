@@ -5,6 +5,7 @@ Refactored to use shared Web Agent modules.
 
 import asyncio
 import sys
+from pathlib import Path
 import pandas as pd
 from colorama import init, Fore, Style
 
@@ -155,7 +156,9 @@ async def run_batch_mode(model, urls, use_html_mode=False):
             results.append(result)
     
     results_df = pd.DataFrame(results)
-    output_file = "detection_results.csv"
+    output_dir = Path("outputs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / "detection_results.csv"
     results_df.to_csv(output_file, index=False)
     print(f"\n{Fore.GREEN}✓ Results saved to {output_file}{Style.RESET_ALL}")
 
