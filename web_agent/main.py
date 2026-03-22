@@ -21,26 +21,15 @@ from typing import Annotated, Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-try:
-    from web_agent.feature_extractor import (
-        HTML_DEFAULT_FEATURES,
-        extract_html_features,
-        extract_url_features,
-        fetch_url_context,
-    )
-    from web_agent.lists import is_blacklisted, is_whitelisted, load_lists
-    from web_agent.model import MODEL_PATH, PhishingModel
-    from web_agent.ssl_analyzer import analyze_ssl_certificate
-except ImportError:  # Fallback for running from inside the web_agent directory.
-    from feature_extractor import (
-        HTML_DEFAULT_FEATURES,
-        extract_html_features,
-        extract_url_features,
-        fetch_url_context,
-    )
-    from lists import is_blacklisted, is_whitelisted, load_lists
-    from model import MODEL_PATH, PhishingModel
-    from ssl_analyzer import analyze_ssl_certificate
+from config import THREAT_LIST_REFRESH_INTERVAL
+from feature_extractor import (
+    HTML_DEFAULT_FEATURES,
+    extract_html_features,
+    extract_url_features,
+    fetch_url_context,
+)
+from lists import is_blacklisted, is_whitelisted, load_lists, refresh_lists, _refresh_stats
+from model import MODEL_PATH, PhishingModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,27 +37,108 @@ logger = logging.getLogger(__name__)
 # ── Singleton model — populated during lifespan ───────────────────────────────
 _model: PhishingModel | None = None
 
-# SSL risk → additive score boost applied on top of the XGBoost inference score.
-# Keeps the two signals clearly separated and auditable.
-_SSL_BOOST: dict[str, float] = {
-    "HIGH":    0.20,
-    "MEDIUM":  0.08,
-    "LOW":     0.00,
-    "SKIPPED": 0.00,
-}
+# Background refresh task (if enabled)
+_refresh_task: asyncio.Task | None = None
+
+async def _run_background_refresh_loop() -> None:
+    """Background task for periodic threat list refresh.
+    
+    Runs at the configured interval (THREAT_LIST_REFRESH_INTERVAL seconds).
+    Catches and logs all exceptions to prevent the task from dying.
+    """
+    if THREAT_LIST_REFRESH_INTERVAL <= 0:
+        logger.info("Threat list refresh is disabled (THREAT_LIST_REFRESH_INTERVAL <= 0)")
+        return
+    
+    logger.info(
+        "Background refresh task started — will refresh every %d seconds",
+        THREAT_LIST_REFRESH_INTERVAL,
+    )
+    
+    while True:
+        try:
+            await asyncio.sleep(THREAT_LIST_REFRESH_INTERVAL)
+            logger.debug("Triggering scheduled threat list refresh …")
+            result = await refresh_lists(force=False)
+            if result["status"] == "success":
+                logger.info("Scheduled refresh succeeded: %s", result["message"])
+            else:
+                logger.warning("Scheduled refresh failed: %s", result["message"])
+        except asyncio.CancelledError:
+            logger.info("Background refresh task cancelled (shutdown)")
+            raise
+        except Exception as exc:
+            logger.exception("Background refresh task encountered unexpected error: %s", exc)
+            # Continue running despite error (avoid task death)
+            await asyncio.sleep(5)  # Brief pause before retry
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the XGBoost model and threat lists on startup; clean up on shutdown."""
-    global _model
+    """Load the XGBoost model and threat lists on startup; clean up on shutdown.
+    
+    Model and lists are loaded with graceful degradation:
+    - If model fails to load, service runs in degraded mode (returns 503 errors).
+    - If lists fail to load, service continues with empty lists (logs warning).
+    
+    Also starts a background task for periodic threat list refresh (if enabled).
+    """
+    global _model, _refresh_task
+    
+    # Load model with fallback to degraded mode
     logger.info("Web Agent starting — loading model from '%s' …", MODEL_PATH)
-    _model = PhishingModel(MODEL_PATH)
+    try:
+        _model = PhishingModel(MODEL_PATH)
+        logger.info("Model loaded successfully.")
+    except FileNotFoundError as e:
+        logger.error(
+            "Model file not found: %s — running in degraded mode (returning 503 errors)",
+            e,
+        )
+        _model = None  # Graceful fallback: model stays None, health check returns degraded
+    except Exception as e:
+        logger.error(
+            "Failed to load model: %s — running in degraded mode (returning 503 errors)",
+            e,
+        )
+        _model = None  # Graceful fallback
 
+    # Load threat lists with non-fatal error handling
     logger.info("Loading whitelist / blacklist …")
-    await load_lists()
-    logger.info("Web Agent is ready.")
+    try:
+        await load_lists()
+        logger.info("Threat lists loaded successfully.")
+    except Exception as e:
+        logger.warning(
+            "Failed to load threat lists: %s — continuing with empty lists", e
+        )
+    
+    # Start background refresh task (if configured)
+    if THREAT_LIST_REFRESH_INTERVAL > 0:
+        _refresh_task = asyncio.create_task(_run_background_refresh_loop())
+        logger.info("Background refresh task created (interval: %ds)", THREAT_LIST_REFRESH_INTERVAL)
+    else:
+        logger.info("Background refresh task not started (disabled via config)")
+    
+    if _model is None:
+        logger.warning(
+            "Web Agent is ready BUT IN DEGRADED MODE (model not loaded). "
+            "Health check will return status='degraded'."
+        )
+    else:
+        logger.info("Web Agent is ready.")
+    
     yield
+    
+    # Cancel background refresh task on shutdown
+    if _refresh_task is not None:
+        logger.info("Cancelling background refresh task …")
+        _refresh_task.cancel()
+        try:
+            await _refresh_task
+        except asyncio.CancelledError:
+            logger.info("Background refresh task cancelled.")
+    
     logger.info("Web Agent shutting down.")
 
 
@@ -107,9 +177,6 @@ class URLResult(BaseModel):
     source: str             # "model" | "blacklist" | "whitelist" | "error"
     html_features_used: bool
     redirection_chain: list[str]
-    ssl_valid: bool
-    ssl_risk_level: str     # "LOW" | "MEDIUM" | "HIGH" | "SKIPPED"
-    ssl_risk_flags: list[str]
 
 
 class AnalyzeResponse(BaseModel):
@@ -159,6 +226,55 @@ async def analyze_urls_json(request: AnalyzeUrlsJsonRequest) -> AnalyzeResponse:
     return await _run_analysis(normalized_request)
 
 
+class RefreshListsRequest(BaseModel):
+    force: bool = Field(
+        default=False,
+        description="If true, refresh immediately even if a recent refresh was attempted"
+    )
+
+
+class RefreshListsResponse(BaseModel):
+    status: str  # "success" or "failed"
+    message: str
+    stats: dict[str, Any]
+    elapsed_seconds: float
+
+
+@app.post("/api/v1/refresh-lists", response_model=RefreshListsResponse)
+async def refresh_lists_endpoint(request: RefreshListsRequest) -> RefreshListsResponse:
+    """Manually trigger a refresh of threat lists (whitelist + blacklist).
+    
+    Fetches from configured sources with exponential backoff retry logic.
+    On failure, the previous lists are retained (atomic rollback).
+    
+    Args:
+        force: If true, skip any cooldown and refresh immediately.
+    
+    Returns:
+        Status, message, current stats, and elapsed time.
+    """
+    result = await refresh_lists(force=request.force)
+    
+    # Convert status to HTTP response
+    status_code = 200 if result["status"] == "success" else 200  # Always 200 for non-blocking updates
+    
+    return RefreshListsResponse(
+        status=result["status"],
+        message=result["message"],
+        stats=result["stats"],
+        elapsed_seconds=result["elapsed_seconds"],
+    )
+
+
+@app.get("/api/v1/refresh-stats")
+async def get_refresh_stats() -> dict[str, Any]:
+    """Get statistics about threat list refresh operations.
+    
+    Returns current counts, last refresh time, and error information.
+    """
+    return _refresh_stats.to_dict()
+
+
 async def _run_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
     if _model is None:
         raise HTTPException(status_code=503, detail="Model not initialised yet")
@@ -198,23 +314,13 @@ async def _run_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
 # ── Per-URL analysis pipeline ─────────────────────────────────────────────────
 
 
-# Shared sentinel returned by fast-path branches (no SSL analysis performed).
-_SSL_SKIPPED: dict[str, Any] = {
-    "ssl_valid": False,
-    "ssl_risk_level": "SKIPPED",
-    "ssl_risk_flags": [],
-}
-
-
 async def _analyse_url(url: str) -> dict:
     """Full analysis pipeline for a single URL.
 
     Priority order:
-      1. Blacklist  — immediate PHISHING verdict, SSL SKIPPED.
-      2. Whitelist  — immediate SAFE verdict,     SSL SKIPPED.
+            1. Blacklist  — immediate PHISHING verdict.
+            2. Whitelist  — immediate SAFE verdict.
       3. Feature extraction + XGBoost inference.
-      4. SSL certificate analysis (asyncio.to_thread — non-blocking).
-      5. SSL risk score boost applied to ML score.
     """
     try:
         # ── Step 1: Blacklist fast-path (raw URL) ──────────────────────────
@@ -226,7 +332,6 @@ async def _analyse_url(url: str) -> dict:
                 "label": "phishing", "source": "blacklist",
                 "html_features_used": False,
                 "redirection_chain": [url],
-                **_SSL_SKIPPED,
             }
 
         # ── Step 2: Whitelist fast-path (raw URL) ──────────────────────────
@@ -238,7 +343,6 @@ async def _analyse_url(url: str) -> dict:
                 "label": "safe", "source": "whitelist",
                 "html_features_used": False,
                 "redirection_chain": [url],
-                **_SSL_SKIPPED,
             }
 
         # ── Step 3: Resolve URL and fetch HTML context ─────────────────────
@@ -255,7 +359,6 @@ async def _analyse_url(url: str) -> dict:
                     "label": "phishing", "source": "blacklist",
                     "html_features_used": False,
                     "redirection_chain": redirection_chain,
-                    **_SSL_SKIPPED,
                 }
 
         if is_whitelisted(analysis_url):
@@ -266,7 +369,6 @@ async def _analyse_url(url: str) -> dict:
                 "label": "safe", "source": "whitelist",
                 "html_features_used": False,
                 "redirection_chain": redirection_chain,
-                **_SSL_SKIPPED,
             }
 
         # ── Step 5: Feature extraction ─────────────────────────────────────
@@ -279,24 +381,13 @@ async def _analyse_url(url: str) -> dict:
 
         # ── Step 6: XGBoost inference ──────────────────────────────────────
         model_result = _model.predict(all_features)  # type: ignore[union-attr]
-        base_risk: float = model_result["risk_score"]
+        final_risk: float = model_result["risk_score"]
         confidence: float = model_result["confidence"]
-        label: str = model_result["label"]
-
-        # ── Step 7: SSL certificate analysis (non-blocking via thread) ──────
-        ssl_result = await _analyse_ssl(analysis_url)
-        ssl_boost = _SSL_BOOST.get(ssl_result["ssl_risk_level"], 0.0)
-        final_risk = min(1.0, base_risk + ssl_boost)
-
-        # Re-evaluate label after SSL boost
-        final_label = "phishing" if final_risk >= 0.5 else label
+        final_label: str = model_result["label"]
 
         logger.info(
-            "URL scored: %s → base_risk=%.4f ssl=%s boost=%.2f final_risk=%.4f label=%s html=%s",
+            "URL scored: %s → risk=%.4f label=%s html=%s",
             analysis_url,
-            base_risk,
-            ssl_result["ssl_risk_level"],
-            ssl_boost,
             final_risk,
             final_label,
             html_used,
@@ -311,7 +402,6 @@ async def _analyse_url(url: str) -> dict:
             "source": "model",
             "html_features_used": html_used,
             "redirection_chain": redirection_chain,
-            **ssl_result,
         }
 
     except Exception:
@@ -322,31 +412,4 @@ async def _analyse_url(url: str) -> dict:
             "label": "phishing", "source": "error",
             "html_features_used": False,
             "redirection_chain": [url],
-            "ssl_valid": False,
-            "ssl_risk_level": "SKIPPED",
-            "ssl_risk_flags": ["ANALYSIS_PIPELINE_ERROR"],
-        }
-
-
-async def _analyse_ssl(url: str) -> dict[str, Any]:
-    """Run SSL certificate analysis in a thread pool (non-blocking).
-
-    Returns a dict with ``ssl_valid``, ``ssl_risk_level``, ``ssl_risk_flags``
-    keys, safe to unpack directly into the URL result dict.
-
-    Never raises — all errors are caught and returned as MEDIUM risk.
-    """
-    try:
-        raw = await asyncio.to_thread(analyze_ssl_certificate, url)
-        return {
-            "ssl_valid": raw["is_valid"],
-            "ssl_risk_level": raw["risk_level"],
-            "ssl_risk_flags": raw["risk_flags"],
-        }
-    except Exception as exc:
-        logger.warning("SSL analysis raised unexpectedly for %s: %s", url, exc)
-        return {
-            "ssl_valid": False,
-            "ssl_risk_level": "MEDIUM",
-            "ssl_risk_flags": [f"SSL_ANALYSIS_EXCEPTION:{type(exc).__name__}"],
         }
