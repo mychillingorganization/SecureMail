@@ -13,7 +13,8 @@ COPY web_agent/*.py ./
 COPY web_agent/model_artifacts/xgboost_phishing_model.json ./model_artifacts/
 
 # Optional list files (mount or bake in)
-# COPY whitelist.txt blacklist.txt ./
+# COPY web_agent/data/lists/whitelist.txt ./data/lists/whitelist.txt
+# COPY web_agent/data/lists/blacklist.txt ./data/lists/blacklist.txt
 
 EXPOSE 8002
 
