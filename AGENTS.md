@@ -40,7 +40,6 @@ When docs and code conflict, trust this order:
   - `email_agent/guardrails.py`
   - `email_agent/typosquat_detector.py`
   - `email_agent/config.py`
-- `email_agent/llm_analyzer.py` is not production-ready as-is and should be treated as unstable until refactored.
 
 ## Runtime and Interfaces
 - Orchestrator external port is **8080** in compose.
