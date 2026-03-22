@@ -171,3 +171,13 @@ FILE_AGENT/dataset/model_pdf.pkl
 FILE_AGENT/dataset/model_qr.pkl
 FILE_AGENT/dataset/model_word.pkl
 FILE_AGENT/dataset/training_data_collected.csv
+
+# Local-only test files (unrelated to committed suite)
+pytest.ini
+web_agent/test_integration.py
+web_agent/test_refresh_lists.py
+web_agent/FEATURES.md
+web_agent/REVIEW.md
+web_agent/config.py
+
+.vscode/
