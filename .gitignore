@@ -168,3 +168,5 @@ web_agent/test_refresh_lists.py
 web_agent/FEATURES.md
 web_agent/REVIEW.md
 web_agent/config.py
+
+.vscode/

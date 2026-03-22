@@ -18,7 +18,7 @@ graph TD
     C --> E[Web Agent]
     C --> F[File Agent]
     D --> G[Ollama / Llama 3]
-    E --> H[XGBoost & SSL Analysis]
+   E --> H[XGBoost + URL/HTML Features + Threat Lists]
     F --> I[Sandbox / Static Analysis]
     B --> J[(Postgres Audit)]
     B --> K[(Redis Bus)]
@@ -30,7 +30,7 @@ graph TD
 | :--- | :--- | :--- |
 | **Orchestrator** | Pipeline management, Risk Scoring, Audit Logging | FastAPI, SQLAlchemy, Redis, PostgreSQL |
 | **Email Agent** | SPF/DKIM/DMARC, Typosquatting, LLM Intent Analysis | Ollama (Llama 3), dkimpy |
-| **Web Agent** | URL Phishing Detection, SSL/TLS Heuristics | XGBoost, stdlib `ssl`/`socket`, BeautifulSoup4 |
+| **Web Agent** | URL Phishing Detection (Threat Lists + URL/HTML Feature Scoring) | FastAPI, XGBoost, httpx, BeautifulSoup4 |
 | **File Agent** | Attachment Analysis (Static & Dynamic) | ClamAV, YARA (planned) |
 
 ---
@@ -80,10 +80,11 @@ The first line of defense. It verifies the authenticity of the sender and uses a
 
 ### Web Agent
 Analyzes all URLs found within the email body.
-- **XGBoost Inference:** Uses a trained model (70 features) to predict URL maliciousness in <10ms.
-- **SSL/TLS Analysis:** Performs real-time certificate inspection (Age, Issuer, SANs). Flags newly-issued certificates (<30 days) as HIGH risk.
-- **Threat Lists:** Integrated async loading of remote and local blacklists/whitelists.
-- **Signal Fusion:** Blends ML scores with SSL heuristics (e.g., HIGH-risk SSL adds +0.20 to the risk score).
+- **Fast-Path Classification:** Checks blacklist and whitelist first for immediate verdicts.
+- **URL Context Resolution:** Follows redirects (bounded hops) and evaluates intermediate/final URLs.
+- **Safe Fetch Guardrails:** Applies SSRF protections (public-IP-only resolution) before HTML fetch.
+- **Feature Extraction + Inference:** Combines static URL features and parsed HTML features for XGBoost risk scoring.
+- **Threat List Operations:** Supports startup loading, periodic background refresh, and manual refresh endpoints.
 
 ### Orchestrator & Pipeline
 The brain of the system.
