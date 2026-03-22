@@ -39,6 +39,12 @@ jellyfish==1.0.3
 # ============================================================================
 # WEB AGENT - XGBoost ML, Image Analysis, Web Scraping
 # ============================================================================
+# Email Agent (SVM) 
+joblib
+numpy
+scikit-learn
+
+# Web Agent (XGBoost, scraping, image)
 xgboost==2.0.3
 numpy==1.26.4
 scikit-learn==1.5.2
