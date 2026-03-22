@@ -7,12 +7,16 @@ returns a structured dict — never raises on malformed input.
 
 import logging
 import os
+from pathlib import Path
 
 import xgboost as xgb
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.getenv("MODEL_PATH", "xgboost_phishing_model.json")
+# Resolve model path relative to this module's directory, with env override
+_module_dir = Path(__file__).parent.resolve()
+_default_model = _module_dir / "xgboost_phishing_model.json"
+MODEL_PATH = os.getenv("MODEL_PATH", str(_default_model))
 
 
 class PhishingModel:
@@ -24,20 +28,34 @@ class PhishingModel:
     """
 
     def __init__(self, model_path: str = MODEL_PATH) -> None:
+        # Resolve path to handle both absolute and relative paths
+        resolved_path = Path(model_path).resolve()
+        
+        if not resolved_path.exists():
+            raise FileNotFoundError(
+                f"Model file not found at {resolved_path}. "
+                f"Set MODEL_PATH env var to override default location."
+            )
+        
         self._booster = xgb.Booster()
-        self._booster.load_model(model_path)
+        try:
+            self._booster.load_model(str(resolved_path))
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load XGBoost model from {resolved_path}: {e}"
+            ) from e
 
         self.feature_names: list[str] = self._booster.feature_names or []
         if not self.feature_names:
             raise RuntimeError(
-                f"Model at '{model_path}' contains no feature_names. "
+                f"Model at '{resolved_path}' contains no feature_names. "
                 "Re-save the model after setting feature names."
             )
 
         logger.info(
             "PhishingModel loaded: %d features from '%s'",
             len(self.feature_names),
-            model_path,
+            resolved_path,
         )
 
     def predict(self, features: dict[str, float | int]) -> dict[str, float | str]:
