@@ -148,3 +148,11 @@ test/attachments/header-email.webp
 
 utils/test_parse_eml.py
 email_agent/tests/test_protocol.py
+
+# Local-only test files (unrelated to committed suite)
+pytest.ini
+web_agent/test_integration.py
+web_agent/test_refresh_lists.py
+web_agent/FEATURES.md
+web_agent/REVIEW.md
+web_agent/config.py
