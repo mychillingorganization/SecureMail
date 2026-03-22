@@ -234,3 +234,11 @@ plan.md
 orchestra/AGENT_INTEGRATION_GUIDE.md
 .ruff_cache/
 .pytest_cache/
+test.eml:OECustomProperty
+test.eml:Zone.Identifier
+test2.eml:OECustomProperty
+test2.eml:Zone.Identifier
+test3.eml:OECustomProperty
+test3.eml:Zone.Identifier
+test4.eml:OECustomProperty
+test4.eml:Zone.Identifier
