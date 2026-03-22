@@ -9,11 +9,13 @@ import pandas as pd
 from colorama import init, Fore, Style
 
 try:
-    from web_agent.model import MODEL_PATH, PhishingModel
+    from web_agent.config import MODEL_PATH, MODEL_DATASET_PATH, MODEL_NOTEBOOK_PATH
+    from web_agent.model import PhishingModel
     from web_agent.lists import is_blacklisted, is_whitelisted, load_lists
     from web_agent.feature_extractor import extract_html_features, extract_url_features, fetch_url_context
 except ImportError:  # Fallback for running from inside the web_agent directory.
-    from model import PhishingModel, MODEL_PATH
+    from config import MODEL_PATH, MODEL_DATASET_PATH, MODEL_NOTEBOOK_PATH
+    from model import PhishingModel
     from lists import load_lists, is_blacklisted, is_whitelisted
     from feature_extractor import extract_url_features, extract_html_features, fetch_url_context
 
@@ -21,6 +23,9 @@ init(autoreset=True)
 
 async def initialize():
     print(f"{Fore.CYAN}Loading threat lists and model...{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}ℹ Model path: {MODEL_PATH}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}ℹ Dataset path: {MODEL_DATASET_PATH}{Style.RESET_ALL}")
+    print(f"{Fore.CYAN}ℹ Notebook path: {MODEL_NOTEBOOK_PATH}{Style.RESET_ALL}")
     await load_lists()
     model = PhishingModel(MODEL_PATH)
     return model
