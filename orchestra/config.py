@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     request_timeout_seconds: float = 20.0
     email_suspicious_threshold: float = 0.8
     count_file_agent_unavailable_as_issue: bool = False
+    google_ai_studio_api_key: str | None = None
+    google_ai_studio_model: str = "gemini-3.1-flash-lite-preview"
+    google_ai_studio_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # If any scanned file hash is in this comma-separated list, mark as MALICIOUS.
     threat_intel_malicious_hashes: str = ""
