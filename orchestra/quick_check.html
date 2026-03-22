@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SecureMail Quick Checker</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 16px; }
+    h1 { margin-bottom: 8px; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; }
+    button { padding: 10px 16px; cursor: pointer; }
+    pre { background: #111; color: #e8e8e8; padding: 12px; border-radius: 8px; overflow: auto; }
+    .muted { color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>SecureMail Quick Checker</h1>
+  <p class="muted">Temporary utility page to browse an EML file and run orchestrator scan.</p>
+
+  <div class="card">
+    <form id="scanForm">
+      <p>
+        <label>Select EML file</label><br />
+        <input type="file" id="emlFile" name="file" accept=".eml" required />
+      </p>
+      <p>
+        <label>
+          <input type="checkbox" id="acceptDanger" name="user_accepts_danger" />
+          user_accepts_danger
+        </label>
+      </p>
+      <button type="submit">Run Scan</button>
+    </form>
+  </div>
+
+  <h3>Result</h3>
+  <pre id="result">No scan yet.</pre>
+
+  <script>
+    const form = document.getElementById('scanForm');
+    const resultEl = document.getElementById('result');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      resultEl.textContent = 'Scanning...';
+
+      const fileInput = document.getElementById('emlFile');
+      const danger = document.getElementById('acceptDanger').checked;
+      if (!fileInput.files || fileInput.files.length === 0) {
+        resultEl.textContent = 'Please choose an .eml file first.';
+        return;
+      }
+
+      const payload = new FormData();
+      payload.append('file', fileInput.files[0]);
+      payload.append('user_accepts_danger', String(danger));
+
+      try {
+        const response = await fetch('/api/v1/scan-upload', {
+          method: 'POST',
+          body: payload,
+        });
+
+        const body = await response.json();
+        resultEl.textContent = JSON.stringify(body, null, 2);
+      } catch (err) {
+        resultEl.textContent = 'Request failed: ' + String(err);
+      }
+    });
+  </script>
+</body>
+</html>

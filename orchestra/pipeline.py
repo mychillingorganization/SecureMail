@@ -1,332 +1,261 @@
-"""
-ReAct Pipeline — Pipeline suy luận 5 bước cho phân tích bảo mật email.
-Bước 1: Perceive (nhận dữ liệu)
-Bước 2: Reason (quyết định agent)
-Bước 3: Act (gửi tới agents)
-Bước 4: Observe (thu thập kết quả)
-Bước 5: Reason (kết thúc sớm hoặc tính điểm)
-"""
+from __future__ import annotations
 
-import asyncio
-import logging
-import time
+import hashlib
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
-import httpx
-from config import Settings
-from early_termination import EarlyTerminator
-from models import (
-    AgentResult,
-    EmailScanRequest,
-    ReasoningTrace,
-    ScanResult,
-    Verdict,
-)
-from redis_bus import RedisBus
-from risk_scorer import RiskScorer
+from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
+from email_agent.protocol_verifier import ProtocolVerifier
+from orchestra.clients import AgentClient
+from orchestra.config import Settings
+from orchestra.early_termination import should_terminate
+from orchestra.models import AuditLog, Email, EmailFile, EmailStatus, EmailUrl, EntityStatus, File, Url, VerdictType
+from orchestra.risk_scorer import final_status_from_issue_count
+from orchestra.schemas import ScanResponse
+from orchestra.threat_intel import ThreatIntelScanner
+from utils.parse_eml import parse_eml
 
 
-class ReActPipeline:
-    """
-    Pipeline ReAct 5 bước cho phân tích bảo mật email.
-    Mỗi bước được ghi lại dưới dạng dấu vết suy luận (reasoning trace).
-    """
+@dataclass
+class PipelineDependencies:
+    settings: Settings
+    email_client: AgentClient
+    file_client: AgentClient
+    web_client: AgentClient
+    threat_scanner: ThreatIntelScanner
+    protocol_verifier: ProtocolVerifier
 
-    def __init__(
-        self,
-        settings: Settings,
-        redis_bus: RedisBus | None = None,
-        audit_logger=None,
-    ):
-        self.settings = settings
-        self.redis_bus = redis_bus
-        self.audit_logger = audit_logger
 
-        self.risk_scorer = RiskScorer(
-            w_email=settings.RISK_WEIGHT_EMAIL,
-            w_file=settings.RISK_WEIGHT_FILE,
-            w_web=settings.RISK_WEIGHT_WEB,
-            malicious_threshold=settings.MALICIOUS_THRESHOLD,
-            suspicious_threshold=settings.SUSPICIOUS_THRESHOLD,
-        )
-        self.early_terminator = EarlyTerminator(
-            confidence_threshold=settings.EARLY_TERM_CONFIDENCE_THRESHOLD,
-        )
+def _hash_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8192), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
-        self._http_client: httpx.AsyncClient | None = None
 
-    async def _get_http_client(self) -> httpx.AsyncClient:
-        """Lazy init HTTP client."""
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(timeout=self.settings.AGENT_TIMEOUT)
-        return self._http_client
+def _hash_url(url: str) -> str:
+    return hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()
 
-    async def run(self, request: EmailScanRequest) -> ScanResult:
-        """
-        Chạy pipeline ReAct đầy đủ cho một email.
 
-        Args:
-            request: EmailScanRequest chứa thông tin email
+def _verdict_type_from_status(status: str) -> VerdictType:
+    if status == "DANGER":
+        return VerdictType.malicious
+    if status == "WARNING":
+        return VerdictType.suspicious
+    return VerdictType.safe
 
-        Returns:
-            ScanResult với verdict, risk_score, reasoning_traces
-        """
-        start_time = time.time()
-        traces: list[ReasoningTrace] = []
-        agent_results: list[AgentResult] = []
-        step = 0
 
-        # ===== BƯỚC 1: PERCEIVE — Phân tích dữ liệu đầu vào =====
-        step += 1
-        has_attachments = len(request.attachments) > 0
-        has_urls = len(request.urls) > 0
-        perception = {
-            "email_id": request.email_id,
-            "has_attachments": has_attachments,
-            "attachment_count": len(request.attachments),
-            "has_urls": has_urls,
-            "url_count": len(request.urls),
-            "headers_present": list(request.headers.keys()),
-            "body_length": len(request.body_text),
-        }
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="PERCEIVE",
-                description=f"Nhận email {request.email_id}: {len(request.attachments)} tệp đính kèm, {len(request.urls)} URL, body {len(request.body_text)} ký tự",
-                data=perception,
-            )
-        )
-        logger.info(f"[Step {step}] PERCEIVE: {perception}")
+async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
+    url_hash = _hash_url(raw_url)
+    db_obj = await session.get(Url, url_hash)
+    if db_obj is None:
+        db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
+        session.add(db_obj)
+    else:
+        db_obj.status = status
+    return url_hash
 
-        # ===== BƯỚC 2: REASON — Quyết định gọi agent nào =====
-        step += 1
-        agents_to_call = ["email"]  # Email Agent luôn được gọi
-        if has_attachments:
-            agents_to_call.append("file")
-        if has_urls:
-            agents_to_call.append("web")
 
-        reasoning_data = {
-            "agents_selected": agents_to_call,
-            "reason_file": "Có tệp đính kèm" if has_attachments else "Không có tệp đính kèm",
-            "reason_web": "Có URL" if has_urls else "Không có URL",
-        }
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="REASON",
-                description=f"Quyết định gọi agents: {', '.join(agents_to_call)}",
-                data=reasoning_data,
-            )
-        )
-        logger.info(f"[Step {step}] REASON: agents={agents_to_call}")
+async def _upsert_file(session: AsyncSession, file_hash: str, file_path: str, status: EntityStatus) -> str:
+    db_obj = await session.get(File, file_hash)
+    if db_obj is None:
+        db_obj = File(file_hash=file_hash, file_path=file_path, status=status)
+        session.add(db_obj)
+    else:
+        db_obj.status = status
+        db_obj.file_path = file_path
+    return file_hash
 
-        # ===== BƯỚC 3: ACT — Gửi yêu cầu tới Email Agent (luôn luôn) =====
-        step += 1
-        email_result = await self._call_agent(
-            agent_name="email",
-            url=f"{self.settings.EMAIL_AGENT_URL}/api/v1/analyze",
-            payload=self._build_email_payload(request),
-        )
-        agent_results.append(email_result)
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="ACT",
-                description=f"Gửi tới Email Agent → risk={email_result.risk_score:.4f}, confidence={email_result.confidence:.4f}",
-                data={"agent": "email", "result_summary": email_result.model_dump()},
-            )
-        )
-        logger.info(f"[Step {step}] ACT: Email Agent → risk={email_result.risk_score}")
 
-        # ===== BƯỚC 4 (phần 1): Kiểm tra kết thúc sớm SAU khi có kết quả Email Agent =====
-        step += 1
-        should_terminate, term_reason = self.early_terminator.should_terminate(email_result)
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="REASON",
-                description=f"Kiểm tra kết thúc sớm: {'CÓ' if should_terminate else 'KHÔNG'} — {term_reason}",
-                data={"early_termination": should_terminate, "reason": term_reason},
-            )
+async def execute_pipeline(email_path: str, session: AsyncSession, deps: PipelineDependencies, user_accepts_danger: bool = False) -> ScanResponse:
+    issue_count = 0
+    termination_reason: str | None = None
+    logs: list[str] = []
+
+    email_path_obj = Path(email_path)
+    with tempfile.TemporaryDirectory(prefix="securemail-orch-") as temp_dir:
+        attachment_dir = Path(temp_dir) / "attachments"
+        attachment_dir.mkdir(parents=True, exist_ok=True)
+
+        parsed = parse_eml(email_path_obj, attachment_dir)
+        logs.append("[INFO] Step 1: utils.parse_eml() - SUCCESS")
+
+        auth_result = deps.protocol_verifier.verify_from_eml_file(email_path_obj)
+        spf_ok = bool(auth_result.get("spf", {}).get("pass", False))
+        dkim_ok = bool(auth_result.get("dkim", {}).get("pass", False))
+        dmarc_ok = bool(auth_result.get("dmarc", {}).get("pass", False))
+        auth_failed = not (spf_ok and dkim_ok and dmarc_ok)
+        logs.append(f"[INFO] Step 2: protocol verification - SPF={spf_ok} DKIM={dkim_ok} DMARC={dmarc_ok}")
+        logs.append(
+            "[INFO] Step 2 details: "
+            f"SPF({auth_result.get('spf', {}).get('result', 'unknown')}): {auth_result.get('spf', {}).get('detail', '')} | "
+            f"DKIM({auth_result.get('dkim', {}).get('result', 'unknown')}): {auth_result.get('dkim', {}).get('detail', '')} | "
+            f"DMARC({auth_result.get('dmarc', {}).get('result', 'unknown')}): {auth_result.get('dmarc', {}).get('detail', '')}"
         )
 
-        if should_terminate:
-            logger.warning(f"[Step {step}] EARLY TERMINATION: {term_reason}")
-            result = ScanResult(
-                email_id=request.email_id,
-                verdict=Verdict.MALICIOUS,
-                risk_score=email_result.risk_score,
-                confidence=email_result.confidence,
-                agent_results=agent_results,
-                reasoning_traces=traces,
-                early_terminated=True,
-                processing_time_ms=(time.time() - start_time) * 1000,
-            )
-            # Ghi audit log nếu có
-            if self.audit_logger:
-                await self._safe_audit_log(request, result)
-            return result
+        decision = should_terminate(issue_count=issue_count, auth_failed=auth_failed, malicious_detected=False, reason="Auth Failure: SPF/DKIM/DMARC failed")
+        attachment_hashes: list[tuple[str, str]] = []
+        if decision.halt:
+            termination_reason = decision.reason
+            logs.append(f"[HALT] Step 2: {termination_reason}")
+        else:
+            # Step 3
+            malicious_hash_detected = False
+            for attachment in attachment_dir.iterdir():
+                if not attachment.is_file():
+                    continue
+                attachment_hash = _hash_file(attachment)
+                attachment_hashes.append((attachment_hash, str(attachment)))
+                scan_result = deps.threat_scanner.scan_hash(attachment_hash)
+                if scan_result.verdict == "MALICIOUS":
+                    malicious_hash_detected = True
+                    termination_reason = f"Malicious file hash detected: {attachment_hash}"
+                    logs.append(f"[HALT] Step 3: {termination_reason}")
+                    break
+            if not malicious_hash_detected:
+                logs.append("[INFO] Step 3: attachment hash triage - SAFE")
 
-        # ===== BƯỚC 4 (phần 2): ACT — Gọi File/Web agents song song =====
-        step += 1
-        file_result: AgentResult | None = None
-        web_result: AgentResult | None = None
+            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=malicious_hash_detected, reason=termination_reason)
 
-        parallel_tasks = []
-        if "file" in agents_to_call:
-            parallel_tasks.append(
-                self._call_agent(
-                    agent_name="file",
-                    url=f"{self.settings.FILE_AGENT_URL}/api/v1/analyze",
-                    payload=self._build_file_payload(request),
-                )
-            )
-        if "web" in agents_to_call:
-            parallel_tasks.append(
-                self._call_agent(
-                    agent_name="web",
-                    url=f"{self.settings.WEB_AGENT_URL}/api/v1/analyze",
-                    payload=self._build_web_payload(request),
-                )
-            )
+            if not decision.halt:
+                # Step 4: Email Agent
+                body_text = "\n\n".join(parsed.plain_parts)
+                email_payload = {
+                    "email_id": parsed.subject,
+                    "headers": parsed.auth_headers,
+                    "body_text": body_text,
+                    "timestamp": parsed.sent_at,
+                }
+                try:
+                    email_resp = await deps.email_client.analyze(email_payload)
+                    email_risk = float(email_resp.get("risk_score", 0.0))
+                    if email_risk >= deps.settings.email_suspicious_threshold:
+                        issue_count += 1
+                        logs.append(f"[WARNING] Step 4: EmailAgent suspicious - issue_count={issue_count}")
+                    else:
+                        logs.append("[INFO] Step 4: EmailAgent - PASS")
+                except Exception as exc:  # pragma: no cover - network failure path
+                    issue_count += 1
+                    logs.append(f"[WARNING] Step 4: EmailAgent unavailable ({exc}) - issue_count={issue_count}")
 
-        if parallel_tasks:
-            results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-            idx = 0
-            if "file" in agents_to_call:
-                if isinstance(results[idx], AgentResult):
-                    file_result = results[idx]
-                    agent_results.append(file_result)
+                decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                if decision.halt:
+                    termination_reason = decision.reason
+                    logs.append(f"[HALT] Step 4: {termination_reason}")
+
+            if not decision.halt:
+                # Step 5: File Agent
+                if attachment_hashes:
+                    try:
+                        file_resp = await deps.file_client.analyze(
+                            {
+                                "email_id": parsed.subject,
+                                "attachments": [
+                                    {"path": path, "sha256": file_hash}
+                                    for file_hash, path in attachment_hashes
+                                ],
+                            }
+                        )
+                        file_label = str(file_resp.get("label", "safe")).lower()
+                        if file_label in {"malicious", "phishing"}:
+                            termination_reason = "FileAgent detected malicious attachment"
+                            logs.append(f"[HALT] Step 5: {termination_reason}")
+                            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
+                        elif file_resp.get("risk_score", 0.0) >= 0.5:
+                            issue_count += 1
+                            logs.append(f"[WARNING] Step 5: FileAgent suspicious - issue_count={issue_count}")
+                        else:
+                            logs.append("[INFO] Step 5: FileAgent - PASS")
+                    except Exception as exc:  # pragma: no cover
+                        if deps.settings.count_file_agent_unavailable_as_issue:
+                            issue_count += 1
+                            logs.append(f"[WARNING] Step 5: FileAgent unavailable ({exc}) - issue_count={issue_count}")
+                        else:
+                            logs.append(f"[INFO] Step 5: FileAgent unavailable ({exc}) - degraded mode, no issue increment")
                 else:
-                    logger.error(f"File Agent lỗi: {results[idx]}")
-                idx += 1
-            if "web" in agents_to_call:
-                if isinstance(results[idx], AgentResult):
-                    web_result = results[idx]
-                    agent_results.append(web_result)
+                    logs.append("[INFO] Step 5: FileAgent skipped - no attachments")
+
+                if not decision.halt:
+                    decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                if decision.halt and termination_reason is None:
+                    termination_reason = decision.reason
+                    logs.append(f"[HALT] Step 5: {termination_reason}")
+
+            if not decision.halt:
+                # Step 6: Web Agent
+                urls = sorted(parsed.urls)
+                if urls:
+                    try:
+                        web_resp = await deps.web_client.analyze({"email_id": parsed.subject, "urls": urls})
+                        web_label = str(web_resp.get("label", "safe")).lower()
+                        if web_label in {"malicious", "phishing"}:
+                            termination_reason = "WebAgent detected phishing URL"
+                            logs.append(f"[HALT] Step 6: {termination_reason}")
+                            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
+                        elif web_resp.get("risk_score", 0.0) >= 0.5:
+                            issue_count += 1
+                            logs.append(f"[WARNING] Step 6: WebAgent suspicious - issue_count={issue_count}")
+                        else:
+                            logs.append("[INFO] Step 6: WebAgent - PASS")
+                    except Exception as exc:  # pragma: no cover
+                        issue_count += 1
+                        logs.append(f"[WARNING] Step 6: WebAgent unavailable ({exc}) - issue_count={issue_count}")
                 else:
-                    logger.error(f"Web Agent lỗi: {results[idx]}")
+                    logs.append("[INFO] Step 6: WebAgent skipped - no URLs")
 
-        act_desc_parts = []
-        if file_result:
-            act_desc_parts.append(f"File Agent → risk={file_result.risk_score:.4f}")
-        if web_result:
-            act_desc_parts.append(f"Web Agent → risk={web_result.risk_score:.4f}")
-        if not act_desc_parts:
-            act_desc_parts.append("Không có agent phụ nào được gọi")
+                if not decision.halt:
+                    decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                if decision.halt and termination_reason is None:
+                    termination_reason = decision.reason
+                    logs.append(f"[HALT] Step 6: {termination_reason}")
 
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="OBSERVE",
-                description=f"Thu thập kết quả: {'; '.join(act_desc_parts)}",
-                data={
-                    "file_result": file_result.model_dump() if file_result else None,
-                    "web_result": web_result.model_dump() if web_result else None,
+        final_status = "DANGER" if decision.halt else final_status_from_issue_count(issue_count)
+        logs.append(f"[INFO] Step 7: Final verdict = {final_status}")
+
+        email_row = Email(
+            message_id=parsed.subject,
+            sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
+            receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
+            status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
+            total_risk_score=float(issue_count),
+            final_verdict=_verdict_type_from_status(final_status),
+        )
+        session.add(email_row)
+        await session.flush()
+
+        session.add(
+            AuditLog(
+                email_id=email_row.id,
+                agent_name="Orchestrator",
+                reasoning_trace={
+                    "issue_count": issue_count,
+                    "termination_reason": termination_reason,
+                    "logs": logs,
                 },
+                cryptographic_hash=None,
             )
         )
-        logger.info(f"[Step {step}] OBSERVE: {act_desc_parts}")
 
-        # ===== BƯỚC 5: REASON — Tính điểm tổng hợp =====
-        step += 1
-        risk_result = self.risk_scorer.compute(
-            email_score=email_result.risk_score,
-            file_score=file_result.risk_score if file_result else None,
-            web_score=web_result.risk_score if web_result else None,
-        )
+        urls = sorted(parsed.urls)
+        for url in urls:
+            default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
+            url_hash = await _upsert_url(session, url, default_status)
+            session.add(EmailUrl(email_id=email_row.id, url_hash=url_hash))
 
-        traces.append(
-            ReasoningTrace(
-                step=step,
-                phase="REASON",
-                description=f"Điểm rủi ro tổng hợp: {risk_result.total_score:.4f} → {risk_result.verdict.value}",
-                data=risk_result.model_dump(),
-            )
-        )
-        logger.info(f"[Step {step}] REASON: total={risk_result.total_score} verdict={risk_result.verdict}")
+        for file_hash, file_path in attachment_hashes:
+            default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
+            row_hash = await _upsert_file(session, file_hash, file_path, default_status)
+            session.add(EmailFile(email_id=email_row.id, file_hash=row_hash))
 
-        # ===== KẾT QUẢ =====
-        result = ScanResult(
-            email_id=request.email_id,
-            verdict=risk_result.verdict,
-            risk_score=risk_result.total_score,
-            confidence=self._compute_aggregate_confidence(agent_results),
-            agent_results=agent_results,
-            reasoning_traces=traces,
-            early_terminated=False,
-            processing_time_ms=(time.time() - start_time) * 1000,
-        )
+        await session.commit()
 
-        # Ghi audit log nếu có
-        if self.audit_logger:
-            await self._safe_audit_log(request, result)
-
-        return result
-
-    # ===== HELPER METHODS =====
-
-    async def _call_agent(self, agent_name: str, url: str, payload: dict) -> AgentResult:
-        """Gọi một agent qua HTTP và trả về AgentResult."""
-        start = time.time()
-        try:
-            client = await self._get_http_client()
-            response = await client.post(url, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return AgentResult(
-                agent_name=agent_name,
-                risk_score=data.get("risk_score", 0.0),
-                confidence=data.get("confidence", 0.0),
-                details=data,
-                processing_time_ms=(time.time() - start) * 1000,
-            )
-        except Exception as e:
-            logger.error(f"Agent {agent_name} tại {url} lỗi: {e}")
-            return AgentResult(
-                agent_name=agent_name,
-                risk_score=0.0,
-                confidence=0.0,
-                details={"error": str(e)},
-                processing_time_ms=(time.time() - start) * 1000,
-            )
-
-    def _build_email_payload(self, request: EmailScanRequest) -> dict:
-        """Xây dựng payload cho Email Agent."""
-        return {
-            "email_id": request.email_id,
-            "headers": request.headers,
-            "body_text": request.body_text,
-            "body_html": request.body_html,
-            "timestamp": request.timestamp.isoformat(),
-        }
-
-    def _build_file_payload(self, request: EmailScanRequest) -> dict:
-        """Xây dựng payload cho File Agent."""
-        return {
-            "email_id": request.email_id,
-            "attachments": request.attachments,
-        }
-
-    def _build_web_payload(self, request: EmailScanRequest) -> dict:
-        """Xây dựng payload cho Web Agent."""
-        return {
-            "email_id": request.email_id,
-            "urls": request.urls,
-        }
-
-    def _compute_aggregate_confidence(self, results: list[AgentResult]) -> float:
-        """Tính confidence trung bình từ tất cả agents."""
-        if not results:
-            return 0.0
-        return round(sum(r.confidence for r in results) / len(results), 4)
-
-    async def _safe_audit_log(self, request: EmailScanRequest, result: ScanResult):
-        """Ghi audit log, bắt lỗi nếu DB không khả dụng."""
-        try:
-            await self.audit_logger.log_scan(request, result)
-        except Exception as e:
-            logger.error(f"Audit log lỗi: {e}")
+    return ScanResponse(
+        final_status=final_status,
+        issue_count=issue_count,
+        termination_reason=termination_reason,
+        execution_logs=logs,
+    )

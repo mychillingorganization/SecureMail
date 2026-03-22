@@ -1,44 +1,30 @@
-"""
-Cấu hình trung tâm cho Orchestrator.
-Sử dụng Pydantic BaseSettings để load từ biến môi trường.
-"""
-
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Cấu hình Orchestrator - tất cả giá trị có thể ghi đè qua biến môi trường."""
+    """Runtime settings for the orchestrator service."""
 
-    # --- Service URLs ---
-    REDIS_URL: str = "redis://redis:6379/0"
-    POSTGRES_URL: str = "postgresql+asyncpg://securemail:securemail@postgres:5432/securemail"
-    EMAIL_AGENT_URL: str = "http://email-agent:8000"
-    FILE_AGENT_URL: str = "http://file-agent:8001"
-    WEB_AGENT_URL: str = "http://web-agent:8002"
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="SECUREMAIL_", extra="ignore")
 
-    # --- Risk Scoring Weights ---
-    RISK_WEIGHT_EMAIL: float = 0.4
-    RISK_WEIGHT_FILE: float = 0.3
-    RISK_WEIGHT_WEB: float = 0.3
+    service_name: str = "orchestrator"
+    email_agent_url: str = "http://localhost:8000"
+    file_agent_url: str = "http://localhost:8001"
+    web_agent_url: str = "http://localhost:8002"
 
-    # --- Early Termination ---
-    EARLY_TERM_CONFIDENCE_THRESHOLD: float = 0.95
+    database_url: str = "postgresql+asyncpg://securemail:securemail@localhost:5432/securemail"
+    request_timeout_seconds: float = 20.0
+    email_suspicious_threshold: float = 0.8
+    count_file_agent_unavailable_as_issue: bool = False
+    google_ai_studio_api_key: str | None = None
+    google_ai_studio_model: str = "gemini-3.1-flash-lite-preview"
+    google_ai_studio_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
-    # --- Redis ---
-    REDIS_MAX_CONNECTIONS: int = 20
-
-    # --- Verdict Thresholds ---
-    MALICIOUS_THRESHOLD: float = 0.7
-    SUSPICIOUS_THRESHOLD: float = 0.4
-
-    # --- Timeouts (seconds) ---
-    AGENT_TIMEOUT: float = 30.0
-
-    model_config = {"env_prefix": "", "case_sensitive": True}
+    # If any scanned file hash is in this comma-separated list, mark as MALICIOUS.
+    threat_intel_malicious_hashes: str = ""
 
 
-@lru_cache
+@lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()

@@ -1,206 +1,197 @@
-"""
-Tests cho ReActPipeline — Kiểm thử pipeline đầy đủ.
-"""
+from __future__ import annotations
 
-import os
-import sys
+import hashlib
+from types import SimpleNamespace
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import pytest
+from sqlalchemy import select
 
-import asyncio
-import unittest
-from unittest.mock import MagicMock, patch
-
-from config import Settings
-from models import EmailScanRequest, Verdict
-from pipeline import ReActPipeline
+from orchestra.config import Settings
+from orchestra.models import AuditLog, Email
+from orchestra.pipeline import PipelineDependencies, execute_pipeline
+from orchestra.threat_intel import ThreatIntelScanner
 
 
-def run_async(coro):
-    """Helper để chạy async test."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+class DummyProtocolVerifier:
+    def __init__(self, *, auth_ok: bool = True) -> None:
+        self._auth_ok = auth_ok
 
-
-class TestReActPipeline(unittest.TestCase):
-    def setUp(self):
-        self.settings = Settings(
-            EMAIL_AGENT_URL="http://localhost:8000",
-            FILE_AGENT_URL="http://localhost:8001",
-            WEB_AGENT_URL="http://localhost:8002",
-            RISK_WEIGHT_EMAIL=0.4,
-            RISK_WEIGHT_FILE=0.3,
-            RISK_WEIGHT_WEB=0.3,
-            EARLY_TERM_CONFIDENCE_THRESHOLD=0.95,
-        )
-        self.pipeline = ReActPipeline(settings=self.settings)
-
-    def _make_request(self, attachments=None, urls=None):
-        """Helper tạo EmailScanRequest."""
-        return EmailScanRequest(
-            email_id="test-001",
-            headers={
-                "from": "attacker@evil.com",
-                "to": "victim@bank.com",
-                "subject": "Test Email",
-            },
-            body_text="This is a test email body",
-            attachments=attachments or [],
-            urls=urls or [],
-        )
-
-    def _mock_email_response(self, risk_score=0.8, confidence=0.92, spf_pass=False, dkim_pass=False, dmarc_pass=False):
-        """Tạo mock response cho Email Agent."""
+    def verify_from_eml_file(self, _path: str):
+        if self._auth_ok:
+            return {
+                "spf": {"pass": True},
+                "dkim": {"pass": True},
+                "dmarc": {"pass": True},
+            }
         return {
-            "email_id": "test-001",
-            "risk_score": risk_score,
-            "confidence": confidence,
-            "checks": {
-                "spf": {"pass": spf_pass, "result": "pass" if spf_pass else "fail"},
-                "dkim": {"pass": dkim_pass, "result": "pass" if dkim_pass else "fail"},
-                "dmarc": {"pass": dmarc_pass, "result": "pass" if dmarc_pass else "fail"},
-            },
-            "processing_time_ms": 100,
+            "spf": {"pass": False},
+            "dkim": {"pass": False},
+            "dmarc": {"pass": False},
         }
 
-    def _mock_file_response(self, risk_score=0.3):
-        return {"email_id": "test-001", "risk_score": risk_score, "confidence": 0.75, "processing_time_ms": 50}
 
-    def _mock_web_response(self, risk_score=0.4):
-        return {"email_id": "test-001", "risk_score": risk_score, "confidence": 0.70, "processing_time_ms": 30}
+class DummyAgentClient:
+    def __init__(self, payload: dict):
+        self._payload = payload
 
-    # Test 1: Pipeline đầy đủ với tất cả agents
-    @patch("httpx.AsyncClient.post")
-    def test_full_pipeline_all_agents(self, mock_post):
-        request = self._make_request(
-            attachments=[{"filename": "report.pdf"}],
-            urls=["http://example.com"],
+    async def analyze(self, _payload: dict):
+        return self._payload
+
+
+class FailIfCalledAgentClient:
+    async def analyze(self, _payload: dict):
+        raise AssertionError("Agent should not be called for empty inputs")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_pass(db_session, monkeypatch):
+    def fake_parse_eml(_eml_path, attachments_dir):
+        (attachments_dir / "a.txt").write_text("benign")
+        return SimpleNamespace(
+            subject="msg-1",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls={"https://example.com"},
         )
 
-        # Mock responses cho 3 agents
-        mock_responses = [
-            self._mock_email_response(risk_score=0.6, confidence=0.85, spf_pass=True),
-            self._mock_file_response(risk_score=0.3),
-            self._mock_web_response(risk_score=0.4),
-        ]
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
 
-        response_mocks = []
-        for resp_data in mock_responses:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = resp_data
-            mock_resp.raise_for_status = MagicMock()
-            response_mocks.append(mock_resp)
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        file_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        web_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        threat_scanner=ThreatIntelScanner(set()),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=True),
+    )
 
-        mock_post.side_effect = response_mocks
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
 
-        result = run_async(self.pipeline.run(request))
+    assert result.final_status == "PASS"
+    assert result.issue_count == 0
+    assert result.termination_reason is None
 
-        self.assertEqual(result.email_id, "test-001")
-        self.assertFalse(result.early_terminated)
-        self.assertEqual(len(result.agent_results), 3)
-        self.assertGreater(len(result.reasoning_traces), 0)
-        self.assertIn(result.verdict, [Verdict.SAFE, Verdict.SUSPICIOUS, Verdict.MALICIOUS])
+    emails = (await db_session.execute(select(Email))).scalars().all()
+    logs = (await db_session.execute(select(AuditLog))).scalars().all()
+    assert len(emails) == 1
+    assert len(logs) == 1
 
-    # Test 2: Early termination — email giả mạo rõ ràng
-    @patch("httpx.AsyncClient.post")
-    def test_early_termination_spoofed_email(self, mock_post):
-        request = self._make_request(
-            attachments=[{"filename": "malware.exe"}],
-            urls=["http://phishing-site.com"],
+
+@pytest.mark.asyncio
+async def test_pipeline_warning(db_session, monkeypatch):
+    def fake_parse_eml(_eml_path, attachments_dir):
+        (attachments_dir / "a.txt").write_text("benign")
+        return SimpleNamespace(
+            subject="msg-2",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls={"https://example.com"},
         )
 
-        # Email Agent trả về: tất cả protocol fail + confidence > 0.95
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.95,
-            confidence=0.98,
-            spf_pass=False,
-            dkim_pass=False,
-            dmarc_pass=False,
-        )
-        mock_resp.raise_for_status = MagicMock()
-        mock_post.return_value = mock_resp
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
 
-        result = run_async(self.pipeline.run(request))
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.8, "label": "phishing"}),
+        file_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        web_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        threat_scanner=ThreatIntelScanner(set()),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=True),
+    )
 
-        self.assertTrue(result.early_terminated)
-        self.assertEqual(result.verdict, Verdict.MALICIOUS)
-        # Chỉ có 1 agent (email) — File/Web bị bỏ qua
-        self.assertEqual(len(result.agent_results), 1)
-        self.assertEqual(result.agent_results[0].agent_name, "email")
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
 
-    # Test 3: Email không có đính kèm, không có URL → chỉ gọi Email Agent
-    @patch("httpx.AsyncClient.post")
-    def test_email_only_no_attachments_no_urls(self, mock_post):
-        request = self._make_request()  # Không có attachments/urls
+    assert result.final_status == "WARNING"
+    assert result.issue_count == 1
 
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.3,
-            confidence=0.6,
-            spf_pass=True,
-            dkim_pass=True,
-            dmarc_pass=True,
-        )
-        mock_resp.raise_for_status = MagicMock()
-        mock_post.return_value = mock_resp
 
-        result = run_async(self.pipeline.run(request))
-
-        self.assertFalse(result.early_terminated)
-        self.assertEqual(len(result.agent_results), 1)
-        self.assertEqual(result.agent_results[0].agent_name, "email")
-        self.assertEqual(result.verdict, Verdict.SAFE)  # risk_score 0.3 < 0.4
-
-    # Test 4: Reasoning traces ghi đầy đủ các bước
-    @patch("httpx.AsyncClient.post")
-    def test_reasoning_traces_recorded(self, mock_post):
-        request = self._make_request()
-
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = self._mock_email_response(
-            risk_score=0.5,
-            confidence=0.7,
-            spf_pass=True,
-            dkim_pass=True,
-            dmarc_pass=True,
-        )
-        mock_resp.raise_for_status = MagicMock()
-        mock_post.return_value = mock_resp
-
-        result = run_async(self.pipeline.run(request))
-
-        phases = [t.phase for t in result.reasoning_traces]
-        # Phải có: PERCEIVE, REASON, ACT, REASON (early check), OBSERVE, REASON (scoring)
-        self.assertIn("PERCEIVE", phases)
-        self.assertIn("REASON", phases)
-        self.assertIn("ACT", phases)
-
-    # Test 5: Có đính kèm nhưng không có URL → chỉ Email + File
-    @patch("httpx.AsyncClient.post")
-    def test_attachments_only_no_urls(self, mock_post):
-        request = self._make_request(
-            attachments=[{"filename": "doc.pdf"}],
+@pytest.mark.asyncio
+async def test_pipeline_danger_auth_failure(db_session, monkeypatch):
+    def fake_parse_eml(_eml_path, attachments_dir):
+        (attachments_dir / "a.txt").write_text("benign")
+        return SimpleNamespace(
+            subject="msg-3",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls={"https://example.com"},
         )
 
-        mock_responses = [
-            self._mock_email_response(risk_score=0.4, confidence=0.7, spf_pass=True),
-            self._mock_file_response(risk_score=0.2),
-        ]
-        response_mocks = []
-        for resp_data in mock_responses:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = resp_data
-            mock_resp.raise_for_status = MagicMock()
-            response_mocks.append(mock_resp)
-        mock_post.side_effect = response_mocks
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
 
-        result = run_async(self.pipeline.run(request))
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        file_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        web_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        threat_scanner=ThreatIntelScanner(set()),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=False),
+    )
 
-        agent_names = [r.agent_name for r in result.agent_results]
-        self.assertIn("email", agent_names)
-        self.assertIn("file", agent_names)
-        self.assertNotIn("web", agent_names)
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
+
+    assert result.final_status == "DANGER"
+    assert "Auth Failure" in (result.termination_reason or "")
 
 
-if __name__ == "__main__":
-    unittest.main()
+@pytest.mark.asyncio
+async def test_pipeline_danger_malicious_hash(db_session, monkeypatch):
+    content = b"known-malware"
+    malicious_hash = hashlib.sha256(content).hexdigest()
+
+    def fake_parse_eml(_eml_path, attachments_dir):
+        (attachments_dir / "bad.bin").write_bytes(content)
+        return SimpleNamespace(
+            subject="msg-4",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls={"https://example.com"},
+        )
+
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
+
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        file_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        web_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        threat_scanner=ThreatIntelScanner({malicious_hash}),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=True),
+    )
+
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
+
+    assert result.final_status == "DANGER"
+    assert "Malicious file hash" in (result.termination_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_skips_file_and_web_without_inputs(db_session, monkeypatch):
+    def fake_parse_eml(_eml_path, _attachments_dir):
+        return SimpleNamespace(
+            subject="msg-5",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls=set(),
+        )
+
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
+
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        file_client=FailIfCalledAgentClient(),
+        web_client=FailIfCalledAgentClient(),
+        threat_scanner=ThreatIntelScanner(set()),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=True),
+    )
+
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
+
+    assert result.final_status == "PASS"
+    assert any("FileAgent skipped - no attachments" in line for line in result.execution_logs)
+    assert any("WebAgent skipped - no URLs" in line for line in result.execution_logs)

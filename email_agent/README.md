@@ -18,9 +18,6 @@
    (SPF / DKIM / DMARC)         (SPF / DKIM / DMARC)
             │                           │
             ▼                           ▼
-   Typosquatting Detection      Typosquatting Detection
-            │                           │
-            ▼                           ▼
       Risk Scoring                Input Guardrails
             │                    (Prompt Injection Filter)
             ▼                           │
