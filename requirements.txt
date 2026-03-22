@@ -25,6 +25,11 @@ checkdmarc==5.3.1
 python-Levenshtein==0.23.0
 jellyfish==1.0.3
 
+# Email Agent (SVM) 
+joblib
+numpy
+scikit-learn
+
 # Web Agent (XGBoost, scraping, image)
 xgboost==2.0.3
 numpy==1.26.4
