@@ -1,0 +1,41 @@
+version: "3.9"
+
+# ============================================================
+# Sandbox network — hoàn toàn cô lập với internet
+# Chỉ có Fakenet-NG làm DNS/HTTP responder giả
+#
+# Dùng trong: dynamic_sandbox.py
+# Khởi động thủ công KHÔNG cần thiết — dynamic_sandbox.py tự quản lý
+# ============================================================
+
+networks:
+  sandbox_net:
+    driver: bridge
+    internal: true    # KHÔNG có internet
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+services:
+
+  # ── Fakenet-NG — giả lập DNS/HTTP/SMTP ──────────────────────
+  fakenet:
+    image: mandiant/fakenet-ng:latest
+    container_name: sandbox_fakenet
+    cap_add:
+      - NET_ADMIN
+    networks:
+      sandbox_net:
+        ipv4_address: 172.20.0.2
+    volumes:
+      - ./fakenet_output:/fakenet/logs
+    command: ["fakenet", "-l", "/fakenet/logs/fakenet.log"]
+
+  # ── Wine sandbox (tạo động bởi dynamic_sandbox.py) ─────────
+  # wine_sandbox:  ← không define cứng, tạo bằng docker SDK
+
+  # ── Linux sandbox (tạo động bởi dynamic_sandbox.py) ────────
+  # linux_sandbox: ← không define cứng, tạo bằng docker SDK
+
+volumes:
+  fakenet_output:

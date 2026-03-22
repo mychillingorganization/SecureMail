@@ -160,3 +160,14 @@ orchestra/**/*.coverage
 orchestra/**/*.cover
 *_audit.db
 test_cache/
+main (1).pdf
+FILE_AGENT/.env.example
+FILE_AGENT/.gitignore
+email_agent/__pycache__/protocol_verifier.cpython-313.pyc
+FILE_AGENT/requirements.txt
+FILE_AGENT/dataset/model_excel.pkl
+FILE_AGENT/dataset/model_image.pkl
+FILE_AGENT/dataset/model_pdf.pkl
+FILE_AGENT/dataset/model_qr.pkl
+FILE_AGENT/dataset/model_word.pkl
+FILE_AGENT/dataset/training_data_collected.csv

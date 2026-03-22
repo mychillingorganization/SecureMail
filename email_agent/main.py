@@ -64,11 +64,13 @@ class _EmailModelRuntime:
         extra_scaled = self.scaler.transform(extra)
         final = hstack([text_vec, extra_scaled])
 
-        pred = int(self.model.predict(final)[0])
         raw_score = float(self.model.decision_function(final)[0])
-        confidence = 1.0 / (1.0 + math.exp(-raw_score))
-        risk_score = confidence if pred == 1 else 1.0 - confidence
-        label = "phishing" if pred == 1 else "safe"
+        phishing_probability = 1.0 / (1.0 + math.exp(-raw_score))
+
+        # Keep semantics stable: risk_score always means phishing probability.
+        risk_score = phishing_probability
+        label = "phishing" if phishing_probability >= 0.5 else "safe"
+        confidence = phishing_probability if label == "phishing" else 1.0 - phishing_probability
         return risk_score, confidence, label
 
 
