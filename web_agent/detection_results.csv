@@ -1,0 +1,2 @@
+url,prediction,phishing_probability,source
+http://example.com,PHISHING,99.78%,MODEL

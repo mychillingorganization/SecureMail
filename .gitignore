@@ -1,6 +1,150 @@
-.venv/lib64
-.venv/pyvenv.cfg
-.venv/bin/python
-.venv/bin/python3
-.venv/bin/python3.12
-email_agent/__pycache__/main.cpython-311.pyc
+# -----------------------------
+# Python bytecode / extensions
+# -----------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# -----------------------------
+# Packaging / distribution
+# -----------------------------
+.Python
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# -----------------------------
+# Installer / build artifacts
+# -----------------------------
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# -----------------------------
+# Test / coverage / tooling caches
+# -----------------------------
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# -----------------------------
+# Framework / app-local files
+# -----------------------------
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+instance/
+.webassets-cache
+.scrapy
+
+# -----------------------------
+# Documentation / notebooks
+# -----------------------------
+docs/_build/
+.ipynb_checkpoints
+
+# -----------------------------
+# Python environment managers
+# -----------------------------
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+.pdm-python
+.pdm-build/
+.pixi/
+__pypackages__/
+
+# -----------------------------
+# REPL / editor / IDE metadata
+# -----------------------------
+profile_default/
+ipython_config.py
+.spyderproject
+.spyproject
+.ropeproject
+.vscode/settings.json
+.cursorignore
+.cursorindexingignore
+
+# -----------------------------
+# Misc
+# -----------------------------
+celerybeat-schedule
+celerybeat.pid
+*.sage.py
+cython_debug/
+.abstra/
+marimo/_static/
+marimo/_lsp/
+__marimo__/
+.pypirc
+
+# -----------------------------
+# Local secrets / environment files
+# -----------------------------
+.env
+.envrc
+
+# -----------------------------
+# SecureMail project-local files
+# -----------------------------
+plan-secureMail.prompt.md
+orchestra/plan.md
+
+test.eml
+test2.eml
+test3.eml
+test4.eml
+test_all_eml.py
+
+test/auth_headers.json
+test/content.txt
+test/manifest.json
+test/urls.json
+test/urls.txt
+
+test/attachments/112025_Ava_Visa chay quang cao_DT-1.webp
+test/attachments/112025_Ava_Visa chay quang cao.jpg
+test/attachments/Ava_BE_11.jpg
+test/attachments/footer-quang-cao.webp
+test/attachments/HEADBANNER1812.webp
+test/attachments/header-email.webp
+
+utils/test_parse_eml.py
+email_agent/tests/test_protocol.py
