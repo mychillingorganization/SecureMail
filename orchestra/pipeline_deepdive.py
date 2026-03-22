@@ -1,10 +1,9 @@
-"""Deep-dive analysis pipeline: when DANGER detected, analyze with LLM for detailed reasoning."""
-
 from __future__ import annotations
 
 import hashlib
 import json
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,309 +13,380 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from email_agent.protocol_verifier import ProtocolVerifier
 from orchestra.clients import AgentClient
 from orchestra.config import Settings
+from orchestra.early_termination import should_terminate
 from orchestra.models import AuditLog, Email, EmailFile, EmailStatus, EmailUrl, EntityStatus, File, Url, VerdictType
+from orchestra.risk_scorer import final_status_from_issue_count
 from orchestra.schemas import ScanResponse
 from orchestra.threat_intel import ThreatIntelScanner
 from utils.parse_eml import parse_eml
 
 
+@dataclass
+class DeepDiveDependencies:
+	settings: Settings
+	email_client: AgentClient
+	file_client: AgentClient
+	web_client: AgentClient
+	threat_scanner: ThreatIntelScanner
+	protocol_verifier: ProtocolVerifier
+
+
 def _hash_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+	hasher = hashlib.sha256()
+	with path.open("rb") as handle:
+		for chunk in iter(lambda: handle.read(8192), b""):
+			hasher.update(chunk)
+	return hasher.hexdigest()
 
 
 def _hash_url(url: str) -> str:
-    return hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()
+	return hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _verdict_type_from_status(status: str) -> VerdictType:
-    if status == "DANGER":
-        return VerdictType.malicious
-    if status == "WARNING":
-        return VerdictType.suspicious
-    return VerdictType.safe
+	if status == "DANGER":
+		return VerdictType.malicious
+	if status == "WARNING":
+		return VerdictType.suspicious
+	return VerdictType.safe
 
 
 async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
-    url_hash = _hash_url(raw_url)
-    db_obj = await session.get(Url, url_hash)
-    if db_obj is None:
-        db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
-        session.add(db_obj)
-    else:
-        db_obj.status = status
-    return url_hash
+	url_hash = _hash_url(raw_url)
+	db_obj = await session.get(Url, url_hash)
+	if db_obj is None:
+		db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
+		session.add(db_obj)
+	else:
+		db_obj.status = status
+	return url_hash
 
 
 async def _upsert_file(session: AsyncSession, file_hash: str, file_path: str, status: EntityStatus) -> str:
-    db_obj = await session.get(File, file_hash)
-    if db_obj is None:
-        db_obj = File(file_hash=file_hash, file_path=file_path, status=status)
-        session.add(db_obj)
-    else:
-        db_obj.status = status
-        db_obj.file_path = file_path
-    return file_hash
+	db_obj = await session.get(File, file_hash)
+	if db_obj is None:
+		db_obj = File(file_hash=file_hash, file_path=file_path, status=status)
+		session.add(db_obj)
+	else:
+		db_obj.status = status
+		db_obj.file_path = file_path
+	return file_hash
 
 
 class DeepDiveAnalyzer:
-    """LLM-based deep-dive analyzer for DANGER-flagged emails."""
+	"""Google AI Studio deep-dive analysis for suspicious scans."""
 
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+	def __init__(self, settings: Settings) -> None:
+		self._settings = settings
 
-    async def analyze_danger(
-        self, 
-        email_subject: str,
-        body_snippet: str,
-        auth_result: dict[str, Any],
-        agent_signals: dict[str, Any],
-        urls: list[str],
-    ) -> dict[str, Any]:
-        """Deeply analyze why email is flagged as DANGER."""
-        api_key = self._settings.google_ai_studio_api_key
-        if not api_key:
-            return {
-                "risk_factors": ["Không thể phân tích chi tiết"],
-                "simple_summary": "Không cấu hình Google API key",
-                "confidence_percent": 0,
-                "what_to_do": "Cấu hình API key",
-            }
+	async def analyze(self, payload: dict[str, Any]) -> dict[str, Any]:
+		api_key = self._settings.google_ai_studio_api_key
+		if not api_key:
+			return {
+				"available": False,
+				"summary": "LLM deep-dive skipped: API key is not configured.",
+				"risk_factors": [],
+				"confidence_percent": 0,
+				"should_escalate": False,
+			}
 
-        model = self._settings.google_ai_studio_model
-        base_url = self._settings.google_ai_studio_base_url.rstrip("/")
-        
-        # Build full URL
-        url = f"{base_url}/models/{model}:generateContent?key={api_key}"
+		model = self._settings.google_ai_studio_model
+		base_url = self._settings.google_ai_studio_base_url.rstrip("/")
+		url = f"{base_url}/models/{model}:generateContent?key={api_key}"
 
-        prompt = (
-            "You are a leading cybersecurity expert. Analyze THIS EMAIL and explain why it is DANGEROUS.\n\n"
-            "CRITICAL: Do NOT provide generic analysis. Analyze ONLY BASED ON:\n"
-            "1. ACTUAL EMAIL CONTENT (subject, body, links)\n"
-            "2. AUTHENTICATION STATUS (SPF/DKIM/DMARC)\n"
-            "3. SPECIFIC SOFT INDICATORS (urgency, emotional triggers, suspicious links, etc)\n\n"
-            "EMAIL TO ANALYZE:\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Subject: {email_subject}\n"
-            f"Body:\n{body_snippet}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"AUTHENTICATION STATUS:\n"
-            f"- SPF: {'✓ PASS (sender authorized)' if auth_result.get('spf', {}).get('pass') else '✗ FAIL (possible spoofing)'}\n"
-            f"- DKIM: {'✓ PASS (valid signature)' if auth_result.get('dkim', {}).get('pass') else '✗ FAIL (not authenticated)'}\n"
-            f"- DMARC: {'✓ PASS (legitimate policy)' if auth_result.get('dmarc', {}).get('pass') else '✗ FAIL (policy violation)'}\n\n"
-            f"URLs found: {urls if urls else '(None detected)'}\n\n"
-            "RESPOND IN ENGLISH. Output ONLY valid JSON:\n"
-            "{\n"
-            '  "risk_factors": [\n'
-            '    "Specific indicator 1 (derived from email content)",\n'
-            '    "Specific indicator 2 (derived from email content)",\n'
-            '    "..."\n'
-            '  ],\n'
-            '  "confidence_percent": <0-100>,\n'
-            '  "simple_summary": "1-2 sentences explaining WHY dangerous based on SPECIFIC EMAIL CONTENT",\n'
-            '  "what_to_do": "Recommended action"\n'
-            "}\n"
-        )
+		prompt = (
+			"You are an email security analyst.\n"
+			"Given the scan context below, produce strict JSON only.\n"
+			"If the email is clearly malicious and dangerous, set should_escalate=true.\n\n"
+			f"Context:\n{json.dumps(payload, ensure_ascii=False)}\n\n"
+			"Output JSON schema:\n"
+			"{\n"
+			'  "summary": "short explanation",\n'
+			'  "risk_factors": ["factor1", "factor2"],\n'
+			'  "confidence_percent": 0,\n'
+			'  "should_escalate": false\n'
+			"}\n"
+		)
 
-        payload = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.3,
-                "responseMimeType": "application/json",
-            },
-        }
+		req_payload = {
+			"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+			"generationConfig": {
+				"temperature": 0.2,
+				"responseMimeType": "application/json",
+			},
+		}
 
-        try:
-            async with httpx.AsyncClient(timeout=self._settings.request_timeout_seconds) as client:
-                response = await client.post(url, json=payload)
-                response.raise_for_status()
-                body = response.json()
+		try:
+			async with httpx.AsyncClient(timeout=self._settings.request_timeout_seconds) as client:
+				response = await client.post(url, json=req_payload)
+				response.raise_for_status()
+				body = response.json()
 
-            text = str(body["candidates"][0]["content"]["parts"][0]["text"])
-            parsed = json.loads(text)
-            result = self._normalize_deepdive(parsed)
-            return result
-        except Exception as exc:
-            return {
-                "risk_factors": ["Không thể phân tích chi tiết"],
-                "simple_summary": f"Hệ thống phát hiện email nguy hiểm nhưng không thể giải thích chi tiết",
-                "confidence_percent": 50,
-                "what_to_do": "Đánh dấu là thư rác hoặc xóa",
-            }
-
-    def _normalize_deepdive(self, payload: dict[str, Any]) -> dict[str, Any]:
-        risk_factors = payload.get("risk_factors", [])
-        if not isinstance(risk_factors, list):
-            risk_factors = [str(risk_factors)]
-
-        confidence = payload.get("confidence_percent", 0)
-        try:
-            confidence = max(0, min(100, int(confidence)))
-        except Exception:
-            confidence = 0
-
-        return {
-            "risk_factors": [str(x) for x in risk_factors],
-            "confidence_percent": confidence,
-            "simple_summary": str(payload.get("simple_summary", "Email không an toàn")),
-            "what_to_do": str(payload.get("what_to_do", "Xóa hoặc đánh dấu là thư rác")),
-        }
+			text = str(body["candidates"][0]["content"]["parts"][0]["text"])
+			parsed = json.loads(text)
+			confidence = int(parsed.get("confidence_percent", 0))
+			return {
+				"available": True,
+				"summary": str(parsed.get("summary", "")),
+				"risk_factors": [str(x) for x in parsed.get("risk_factors", [])],
+				"confidence_percent": max(0, min(100, confidence)),
+				"should_escalate": bool(parsed.get("should_escalate", False)),
+			}
+		except Exception as exc:
+			return {
+				"available": False,
+				"summary": f"LLM deep-dive failed: {exc}",
+				"risk_factors": [],
+				"confidence_percent": 0,
+				"should_escalate": False,
+			}
 
 
 async def execute_pipeline_deepdive(
-    email_path: str,
-    session: AsyncSession,
-    settings: Settings,
-    user_accepts_danger: bool = False,
+	email_path: str,
+	session: AsyncSession,
+	settings: Settings,
+	user_accepts_danger: bool = False,
 ) -> ScanResponse:
-    """Pipeline with deep-dive analysis when DANGER is detected.
-    
-    Steps:
-    1. Parse email
-    2. Run protocol verification
-    3. Collect agent signals
-    4. If any signal indicates DANGER → trigger LLM deep-dive analysis
-    5. Return enhanced response with detailed reasoning
-    """
+	issue_count = 0
+	termination_reason: str | None = None
+	logs: list[str] = []
 
-    logs: list[str] = []
-    email_path_obj = Path(email_path)
+	threat_hashes = {item.strip() for item in settings.threat_intel_malicious_hashes.split(",") if item.strip()}
+	deps = DeepDiveDependencies(
+		settings=settings,
+		email_client=AgentClient(settings.email_agent_url, settings.request_timeout_seconds),
+		file_client=AgentClient(settings.file_agent_url, settings.request_timeout_seconds),
+		web_client=AgentClient(settings.web_agent_url, settings.request_timeout_seconds),
+		threat_scanner=ThreatIntelScanner(threat_hashes),
+		protocol_verifier=ProtocolVerifier(),
+	)
 
-    with tempfile.TemporaryDirectory(prefix="securemail-deepdive-") as temp_dir:
-        attachment_dir = Path(temp_dir) / "attachments"
-        attachment_dir.mkdir(parents=True, exist_ok=True)
+	email_path_obj = Path(email_path)
+	with tempfile.TemporaryDirectory(prefix="securemail-orch-llm-") as temp_dir:
+		attachment_dir = Path(temp_dir) / "attachments"
+		attachment_dir.mkdir(parents=True, exist_ok=True)
 
-        parsed = parse_eml(email_path_obj, attachment_dir)
-        logs.append("[INFO] Step 1: Email parsed")
+		parsed = parse_eml(email_path_obj, attachment_dir)
+		logs.append("[INFO] Step 1: utils.parse_eml() - SUCCESS")
 
-        protocol_verifier = ProtocolVerifier()
-        auth_result = protocol_verifier.verify_from_eml_file(email_path_obj)
-        logs.append("[INFO] Step 2: Protocol verification completed")
+		auth_result = deps.protocol_verifier.verify_from_eml_file(email_path_obj)
+		spf_ok = bool(auth_result.get("spf", {}).get("pass", False))
+		dkim_ok = bool(auth_result.get("dkim", {}).get("pass", False))
+		dmarc_ok = bool(auth_result.get("dmarc", {}).get("pass", False))
+		auth_failed = not (spf_ok and dkim_ok and dmarc_ok)
+		logs.append(f"[INFO] Step 2: protocol verification - SPF={spf_ok} DKIM={dkim_ok} DMARC={dmarc_ok}")
 
-        threat_scanner = ThreatIntelScanner(
-            {item.strip() for item in settings.threat_intel_malicious_hashes.split(",") if item.strip()}
-        )
-        attachment_hashes: list[dict[str, Any]] = []
-        for attachment in attachment_dir.iterdir():
-            if not attachment.is_file():
-                continue
-            file_hash = _hash_file(attachment)
-            triage = threat_scanner.scan_hash(file_hash)
-            attachment_hashes.append(
-                {
-                    "path": str(attachment),
-                    "sha256": file_hash,
-                    "triage_verdict": triage.verdict,
-                }
-            )
-        logs.append("[INFO] Step 3: Hash triage completed")
+		decision = should_terminate(
+			issue_count=issue_count,
+			auth_failed=auth_failed,
+			malicious_detected=False,
+			reason="Auth Failure: SPF/DKIM/DMARC failed",
+		)
+		attachment_hashes: list[tuple[str, str]] = []
+		if decision.halt:
+			termination_reason = decision.reason
+			logs.append(f"[HALT] Step 2: {termination_reason}")
+		else:
+			malicious_hash_detected = False
+			for attachment in attachment_dir.iterdir():
+				if not attachment.is_file():
+					continue
+				attachment_hash = _hash_file(attachment)
+				attachment_hashes.append((attachment_hash, str(attachment)))
+				scan_result = deps.threat_scanner.scan_hash(attachment_hash)
+				if scan_result.verdict == "MALICIOUS":
+					malicious_hash_detected = True
+					termination_reason = f"Malicious file hash detected: {attachment_hash}"
+					logs.append(f"[HALT] Step 3: {termination_reason}")
+					break
+			if not malicious_hash_detected:
+				logs.append("[INFO] Step 3: attachment hash triage - SAFE")
 
-        email_client = AgentClient(settings.email_agent_url, settings.request_timeout_seconds)
-        
-        body_text = "\n\n".join(parsed.plain_parts)
-        email_payload = {
-            "email_id": parsed.subject,
-            "subject": parsed.subject,
-            "headers": parsed.auth_headers,
-            "body_text": body_text,
-            "timestamp": parsed.sent_at,
-        }
+			decision = should_terminate(
+				issue_count=issue_count,
+				auth_failed=False,
+				malicious_detected=malicious_hash_detected,
+				reason=termination_reason,
+			)
 
-        email_analysis: dict[str, Any] = {}
-        try:
-            email_analysis = await email_client.analyze(email_payload)
-            logs.append(f"[INFO] Step 4: EmailAgent analyzed (risk={email_analysis.get('risk_score', 0)})")
-        except Exception as exc:
-            email_analysis = {"error": str(exc), "unavailable": True}
-            logs.append(f"[INFO] Step 4: EmailAgent unavailable ({exc})")
+			email_resp: dict[str, Any] = {}
+			file_signals: list[dict[str, Any]] = []
+			web_resp: dict[str, Any] = {}
 
-        urls = sorted(parsed.urls)
-        
-        # Determine if DANGER detected from signals
-        is_danger = False
-        danger_reason = ""
-        
-        email_risk = float(email_analysis.get("risk_score", 0.0))
-        if email_risk >= 0.5:  # More sensitive threshold for deep-dive analysis
-            is_danger = True
-            danger_reason = f"EmailAgent high risk score: {email_risk}"
-        
-        spf_ok = bool(auth_result.get("spf", {}).get("pass", False))
-        dkim_ok = bool(auth_result.get("dkim", {}).get("pass", False))
-        dmarc_ok = bool(auth_result.get("dmarc", {}).get("pass", False))
-        if not (spf_ok and dkim_ok and dmarc_ok):
-            is_danger = True
-            danger_reason = f"Auth failed: SPF={spf_ok} DKIM={dkim_ok} DMARC={dmarc_ok}"
+			if not decision.halt:
+				body_text = "\n\n".join(parsed.plain_parts)
+				email_payload = {
+					"email_id": parsed.subject,
+					"headers": parsed.auth_headers,
+					"body_text": body_text,
+					"timestamp": parsed.sent_at,
+				}
+				try:
+					email_resp = await deps.email_client.analyze(email_payload)
+					email_risk = float(email_resp.get("risk_score", 0.0))
+					if email_risk >= deps.settings.email_suspicious_threshold:
+						issue_count += 1
+						logs.append(f"[WARNING] Step 4: EmailAgent suspicious - issue_count={issue_count}")
+					else:
+						logs.append("[INFO] Step 4: EmailAgent - PASS")
+				except Exception as exc:
+					issue_count += 1
+					logs.append(f"[WARNING] Step 4: EmailAgent unavailable ({exc}) - issue_count={issue_count}")
 
-        final_status = "DANGER" if is_danger else "PASS"
-        termination_reason = None
-        deepdive_analysis = {}
+				decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+				if decision.halt:
+					termination_reason = decision.reason
+					logs.append(f"[HALT] Step 4: {termination_reason}")
 
-        if is_danger:
-            analyzer = DeepDiveAnalyzer(settings)
-            deepdive_analysis = await analyzer.analyze_danger(
-                email_subject=parsed.subject,
-                body_snippet=body_text[:500],
-                auth_result=auth_result,
-                agent_signals={"email_agent": email_analysis},
-                urls=urls,
-            )
-            logs.append(f"[DANGER] LLM analysis: {deepdive_analysis.get('simple_summary', '')}")
-            logs.append(f"[DANGER] Reason: {', '.join(deepdive_analysis.get('risk_factors', []))}")
-            logs.append(f"[DANGER] Confidence: {deepdive_analysis.get('confidence_percent', 0)}%")
-            logs.append(f"[ACTION] {deepdive_analysis.get('what_to_do', '')}")
-            termination_reason = deepdive_analysis.get("simple_summary", danger_reason)
+			if not decision.halt:
+				if attachment_hashes:
+					try:
+						for file_hash, path in attachment_hashes:
+							file_resp = await deps.file_client.analyze_file(path)
+							file_signals.append(file_resp)
 
-        issue_count = 1 if is_danger else 0
+							file_label = str(file_resp.get("label", "safe")).lower()
+							file_risk_level = str(file_resp.get("risk_level", "")).lower()
+							file_risk_score = float(file_resp.get("risk_score", 0.0))
 
-        # Persist to DB
-        email_row = Email(
-            message_id=parsed.subject,
-            sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
-            receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
-            status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
-            total_risk_score=float(issue_count),
-            final_verdict=_verdict_type_from_status(final_status),
-        )
-        session.add(email_row)
-        await session.flush()
+							if file_label in {"malicious", "phishing"} or file_risk_level in {"high", "critical"} or file_risk_score >= 0.7:
+								termination_reason = f"FileAgent detected malicious attachment: {Path(path).name}"
+								logs.append(f"[HALT] Step 5: {termination_reason}")
+								decision = should_terminate(
+									issue_count=issue_count,
+									auth_failed=False,
+									malicious_detected=True,
+									reason=termination_reason,
+								)
+								break
 
-        session.add(
-            AuditLog(
-                email_id=email_row.id,
-                agent_name="DeepDiveOrchestrator",
-                reasoning_trace={
-                    "is_danger": is_danger,
-                    "danger_reason": danger_reason,
-                    "deepdive_analysis": deepdive_analysis,
-                    "logs": logs,
-                },
-                cryptographic_hash=None,
-            )
-        )
+							if file_risk_level == "medium" or file_risk_score >= 0.4:
+								issue_count += 1
+								logs.append(
+									f"[WARNING] Step 5: FileAgent suspicious ({Path(path).name}) - issue_count={issue_count}"
+								)
+							else:
+								logs.append(f"[INFO] Step 5: FileAgent - PASS ({Path(path).name})")
+					except Exception as exc:
+						if deps.settings.count_file_agent_unavailable_as_issue:
+							issue_count += 1
+							logs.append(f"[WARNING] Step 5: FileAgent unavailable ({exc}) - issue_count={issue_count}")
+						else:
+							logs.append(f"[INFO] Step 5: FileAgent unavailable ({exc}) - degraded mode, no issue increment")
+				else:
+					logs.append("[INFO] Step 5: FileAgent skipped - no attachments")
 
-        default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
+				if not decision.halt:
+					decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+				if decision.halt and termination_reason is None:
+					termination_reason = decision.reason
+					logs.append(f"[HALT] Step 5: {termination_reason}")
 
-        for raw_url in urls:
-            url_hash = await _upsert_url(session, raw_url, default_status)
-            session.add(EmailUrl(email_id=email_row.id, url_hash=url_hash))
+			if not decision.halt:
+				urls = sorted(parsed.urls)
+				if urls:
+					try:
+						web_resp = await deps.web_client.analyze({"email_id": parsed.subject, "urls": urls})
+						web_label = str(web_resp.get("label", "safe")).lower()
+						if web_label in {"malicious", "phishing"}:
+							termination_reason = "WebAgent detected phishing URL"
+							logs.append(f"[HALT] Step 6: {termination_reason}")
+							decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
+						elif web_resp.get("risk_score", 0.0) >= 0.5:
+							issue_count += 1
+							logs.append(f"[WARNING] Step 6: WebAgent suspicious - issue_count={issue_count}")
+						else:
+							logs.append("[INFO] Step 6: WebAgent - PASS")
+					except Exception as exc:
+						issue_count += 1
+						logs.append(f"[WARNING] Step 6: WebAgent unavailable ({exc}) - issue_count={issue_count}")
+				else:
+					logs.append("[INFO] Step 6: WebAgent skipped - no URLs")
 
-        for attachment in attachment_hashes:
-            attachment_hash = str(attachment.get("sha256", ""))
-            attachment_path = str(attachment.get("path", ""))
-            if not attachment_hash:
-                continue
-            file_hash = await _upsert_file(session, attachment_hash, attachment_path, default_status)
-            session.add(EmailFile(email_id=email_row.id, file_hash=file_hash))
+				if not decision.halt:
+					decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+				if decision.halt and termination_reason is None:
+					termination_reason = decision.reason
+					logs.append(f"[HALT] Step 6: {termination_reason}")
 
-        await session.commit()
+			final_status = "DANGER" if decision.halt else final_status_from_issue_count(issue_count)
 
-    return ScanResponse(
-        final_status=final_status,
-        issue_count=issue_count,
-        termination_reason=termination_reason,
-        execution_logs=logs,
-    )
+			deepdive = DeepDiveAnalyzer(settings)
+			llm_payload = {
+				"subject": parsed.subject,
+				"sender": parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
+				"auth": {
+					"spf": auth_result.get("spf", {}),
+					"dkim": auth_result.get("dkim", {}),
+					"dmarc": auth_result.get("dmarc", {}),
+				},
+				"email_agent": email_resp,
+				"file_agent": file_signals,
+				"web_agent": web_resp,
+				"issue_count": issue_count,
+				"provisional_final_status": final_status,
+				"termination_reason": termination_reason,
+				"urls": sorted(parsed.urls),
+			}
+			llm_result = await deepdive.analyze(llm_payload)
+
+			logs.append(f"[INFO] Step 7: LLM summary - {llm_result.get('summary', '')}")
+			if llm_result.get("risk_factors"):
+				logs.append(f"[INFO] Step 7: LLM risk factors - {', '.join(llm_result['risk_factors'])}")
+			logs.append(f"[INFO] Step 7: LLM confidence={llm_result.get('confidence_percent', 0)}")
+
+			if (
+				final_status != "DANGER"
+				and llm_result.get("should_escalate")
+				and int(llm_result.get("confidence_percent", 0)) >= 70
+			):
+				final_status = "DANGER"
+				termination_reason = llm_result.get("summary") or "LLM deep-dive escalated the verdict"
+				logs.append(f"[HALT] Step 7: {termination_reason}")
+
+			logs.append(f"[INFO] Step 8: Final verdict = {final_status}")
+
+			email_row = Email(
+				message_id=parsed.subject,
+				sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
+				receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
+				status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
+				total_risk_score=float(issue_count),
+				final_verdict=_verdict_type_from_status(final_status),
+			)
+			session.add(email_row)
+			await session.flush()
+
+			session.add(
+				AuditLog(
+					email_id=email_row.id,
+					agent_name="Orchestrator-LLM",
+					reasoning_trace={
+						"issue_count": issue_count,
+						"termination_reason": termination_reason,
+						"llm_result": llm_result,
+						"logs": logs,
+					},
+					cryptographic_hash=None,
+				)
+			)
+
+			for url in sorted(parsed.urls):
+				default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
+				url_hash = await _upsert_url(session, url, default_status)
+				session.add(EmailUrl(email_id=email_row.id, url_hash=url_hash))
+
+			for file_hash, file_path in attachment_hashes:
+				default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
+				row_hash = await _upsert_file(session, file_hash, file_path, default_status)
+				session.add(EmailFile(email_id=email_row.id, file_hash=row_hash))
+
+			await session.commit()
+
+	return ScanResponse(
+		final_status=final_status,
+		issue_count=issue_count,
+		termination_reason=termination_reason,
+		execution_logs=logs,
+	)
