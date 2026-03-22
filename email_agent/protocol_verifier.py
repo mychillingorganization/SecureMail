@@ -2,6 +2,7 @@ import ipaddress
 import logging
 import re
 from email import policy
+from email.message import EmailMessage
 from email.parser import BytesParser
 from email.utils import parseaddr
 from pathlib import Path
@@ -215,6 +216,99 @@ class ProtocolVerifier:
             "raw_email": raw_email,
         }
 
+    def _parse_eml_message(self, file_path: str | Path) -> tuple[Path, bytes, EmailMessage]:
+        """Read and parse an EML file once for both live and header-based verification."""
+        eml_path = Path(file_path).expanduser().resolve()
+        if not eml_path.exists() or not eml_path.is_file():
+            raise FileNotFoundError(f"Không tìm thấy file .eml: {eml_path}")
+        if eml_path.suffix.lower() != ".eml":
+            raise ValueError(f"File đầu vào phải là .eml: {eml_path}")
+
+        raw_email = eml_path.read_bytes()
+        try:
+            message = BytesParser(policy=policy.default).parsebytes(raw_email)
+        except Exception as e:
+            raise ValueError(f"Không thể phân tích file .eml ({type(e).__name__}): {e}")
+
+        return eml_path, raw_email, message
+
+    def _header_protocol_result(self, protocol_name: str, auth_headers: list[str], received_spf_headers: list[str]) -> dict[str, Any] | None:
+        """Extract SPF/DKIM/DMARC status from Authentication-Results style headers."""
+        pattern = re.compile(
+            rf"\b{protocol_name}\s*=\s*(pass|fail|softfail|neutral|none|temperror|permerror)\b",
+            re.IGNORECASE,
+        )
+        status: str | None = None
+        source = "authentication-results"
+
+        for header in auth_headers:
+            match = pattern.search(header)
+            if match:
+                status = match.group(1).lower()
+                source = "authentication-results"
+                break
+
+        if protocol_name == "spf" and status is None:
+            for header in received_spf_headers:
+                match = re.search(r"\b(pass|fail|softfail|neutral|none|temperror|permerror)\b", header, re.IGNORECASE)
+                if match:
+                    status = match.group(1).lower()
+                    source = "received-spf"
+                    break
+
+        if status is None:
+            return None
+
+        return {
+            "pass": status == "pass",
+            "result": status,
+            "detail": f"Kết quả lấy từ header ({source})",
+            "error": None,
+        }
+
+    def _extract_header_auth_fallback(self, message: EmailMessage) -> dict[str, Any] | None:
+        """Build fallback SPF/DKIM/DMARC result from trusted authentication headers."""
+        auth_headers = [h for h in (message.get_all("Authentication-Results", []) + message.get_all("ARC-Authentication-Results", [])) if h]
+        received_spf_headers = [h for h in message.get_all("Received-SPF", []) if h]
+
+        spf_res = self._header_protocol_result("spf", auth_headers, received_spf_headers)
+        dkim_res = self._header_protocol_result("dkim", auth_headers, received_spf_headers)
+        dmarc_res = self._header_protocol_result("dmarc", auth_headers, received_spf_headers)
+
+        if not any([spf_res, dkim_res, dmarc_res]):
+            return None
+
+        return {
+            "spf": spf_res,
+            "dkim": dkim_res,
+            "dmarc": dmarc_res,
+        }
+
+    def _merge_live_with_header_fallback(self, live_result: dict[str, Any], header_result: dict[str, Any] | None) -> dict[str, Any]:
+        """Prefer live verification, but use header fallback when live checks are not trustworthy."""
+        if not header_result:
+            return live_result
+
+        merged = {
+            "spf": dict(live_result.get("spf", {})),
+            "dkim": dict(live_result.get("dkim", {})),
+            "dmarc": dict(live_result.get("dmarc", {})),
+        }
+
+        for key in ("spf", "dkim", "dmarc"):
+            fallback = header_result.get(key)
+            if not fallback:
+                continue
+
+            current = merged.get(key, {})
+            current_result = str(current.get("result", "")).lower()
+            should_replace = current_result in {"", "error", "fail", "softfail", "neutral", "none", "temperror", "permerror"}
+
+            if should_replace:
+                merged[key] = fallback
+
+        return merged
+
     def verify_spf(self, ip: str | None = None, domain: str | None = None, sender: str | None = None) -> dict[str, Any]:
         """
         Xác thực SPF cho email.
@@ -357,17 +451,49 @@ class ProtocolVerifier:
         Main entry point: Load .eml file and perform full protocol verification.
         """
         logger.info(f"Starting verification from .eml file: {file_path}")
+        eml_path, raw_email, message = self._parse_eml_message(file_path)
+        header_fallback = self._extract_header_auth_fallback(message)
+
         try:
-            context = self._load_eml_context(file_path)
-            result = self.verify_all(
+            context = self._load_eml_context(eml_path)
+            live_result = self.verify_all(
                 ip=context["ip"],
                 sender_domain=context["sender_domain"],
                 sender_email=context["sender_email"],
                 from_domain=context["from_domain"],
                 raw_email=context["raw_email"],
             )
+            result = self._merge_live_with_header_fallback(live_result, header_fallback)
             logger.info("Verification completed successfully")
             return result
         except Exception as e:
+            logger.warning(f"Live protocol verification failed, fallback to headers: {type(e).__name__}: {e}")
+            if header_fallback:
+                # Ensure all three keys exist for downstream orchestrator logic.
+                return {
+                    "spf": header_fallback.get("spf") or {"pass": False, "result": "error", "detail": "Không có SPF trong header", "error": "Missing SPF header"},
+                    "dkim": header_fallback.get("dkim") or {"pass": False, "result": "error", "detail": "Không có DKIM trong header", "error": "Missing DKIM header"},
+                    "dmarc": header_fallback.get("dmarc") or {
+                        "pass": False,
+                        "result": "error",
+                        "detail": "Không có DMARC trong header",
+                        "policy": "none",
+                        "record": "",
+                        "error": "Missing DMARC header",
+                    },
+                }
+
             logger.error(f"Verification failed: {type(e).__name__}: {e}")
-            raise
+            # Last resort to keep pipeline alive with explicit error payload.
+            return {
+                "spf": {"pass": False, "result": "error", "detail": "Lỗi khi kiểm tra SPF", "error": str(e)},
+                "dkim": {"pass": False, "result": "error", "detail": "Lỗi khi kiểm tra DKIM", "error": str(e)},
+                "dmarc": {
+                    "pass": False,
+                    "result": "error",
+                    "detail": "Lỗi khi kiểm tra DMARC",
+                    "policy": "none",
+                    "record": "",
+                    "error": str(e),
+                },
+            }

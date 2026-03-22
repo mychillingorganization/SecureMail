@@ -148,3 +148,15 @@ test/attachments/header-email.webp
 
 utils/test_parse_eml.py
 email_agent/tests/test_protocol.py
+orchestra/pland.md
+
+# -----------------------------
+# Orchestrator test artifacts
+# -----------------------------
+orchestra/tests/fixtures/output/
+orchestra/tests/.tmp/
+orchestra/**/*_test_results.json
+orchestra/**/*.coverage
+orchestra/**/*.cover
+*_audit.db
+test_cache/
