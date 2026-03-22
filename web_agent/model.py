@@ -7,12 +7,13 @@ returns a structured dict — never raises on malformed input.
 
 import logging
 import os
+from pathlib import Path
 
 import xgboost as xgb
 
 logger = logging.getLogger(__name__)
 
-MODEL_PATH = os.getenv("MODEL_PATH", "xgboost_phishing_model.json")
+MODEL_PATH = os.getenv("MODEL_PATH", str(Path(__file__).resolve().parent / "xgboost_phishing_model.json"))
 
 
 class PhishingModel:
