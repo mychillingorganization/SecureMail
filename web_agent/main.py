@@ -21,15 +21,26 @@ from typing import Annotated, Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from feature_extractor import (
-    HTML_DEFAULT_FEATURES,
-    extract_html_features,
-    extract_url_features,
-    fetch_url_context,
-)
-from lists import is_blacklisted, is_whitelisted, load_lists
-from model import MODEL_PATH, PhishingModel
-from ssl_analyzer import analyze_ssl_certificate
+try:
+    from web_agent.feature_extractor import (
+        HTML_DEFAULT_FEATURES,
+        extract_html_features,
+        extract_url_features,
+        fetch_url_context,
+    )
+    from web_agent.lists import is_blacklisted, is_whitelisted, load_lists
+    from web_agent.model import MODEL_PATH, PhishingModel
+    from web_agent.ssl_analyzer import analyze_ssl_certificate
+except ImportError:  # Fallback for running from inside the web_agent directory.
+    from feature_extractor import (
+        HTML_DEFAULT_FEATURES,
+        extract_html_features,
+        extract_url_features,
+        fetch_url_context,
+    )
+    from lists import is_blacklisted, is_whitelisted, load_lists
+    from model import MODEL_PATH, PhishingModel
+    from ssl_analyzer import analyze_ssl_certificate
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
