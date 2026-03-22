@@ -1,0 +1,37 @@
+# ============================================================
+# Dockerfile.wine — Sandbox container cho .exe/.dll/.msi
+# Base: scottyhardy/docker-wine (Wine on Ubuntu)
+#
+# Build:  docker build -f Dockerfile.wine -t file_agent_wine .
+# Dùng trong: dynamic_sandbox.py
+# ============================================================
+
+FROM scottyhardy/docker-wine:latest
+
+# Cài thêm các tools cần thiết
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    tcpdump \
+    procps \
+    iproute2 \
+    net-tools \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python monitor script
+WORKDIR /sandbox
+COPY Sandbox/Monitor.py /sandbox/monitor.py
+COPY Sandbox/wine_registry_diff.py /sandbox/wine_registry_diff.py
+
+RUN pip3 install --break-system-packages psutil watchdog 2>/dev/null || \
+    pip3 install psutil watchdog
+
+# Script chính: chụp registry trước/sau, chạy executable, collect artifacts
+COPY Sandbox/entrypoint_wine.sh /sandbox/entrypoint_wine.sh
+RUN chmod +x /sandbox/entrypoint_wine.sh
+
+# Không có internet (network isolation từ docker-compose)
+# Fakenet-NG chạy ở container riêng cùng network
+
+ENTRYPOINT ["/sandbox/entrypoint_wine.sh"]

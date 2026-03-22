@@ -151,25 +151,40 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                 # Step 5: File Agent
                 if attachment_hashes:
                     try:
-                        file_resp = await deps.file_client.analyze(
-                            {
-                                "email_id": parsed.subject,
-                                "attachments": [
-                                    {"path": path, "sha256": file_hash}
-                                    for file_hash, path in attachment_hashes
-                                ],
-                            }
-                        )
-                        file_label = str(file_resp.get("label", "safe")).lower()
-                        if file_label in {"malicious", "phishing"}:
-                            termination_reason = "FileAgent detected malicious attachment"
-                            logs.append(f"[HALT] Step 5: {termination_reason}")
-                            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
-                        elif file_resp.get("risk_score", 0.0) >= 0.5:
-                            issue_count += 1
-                            logs.append(f"[WARNING] Step 5: FileAgent suspicious - issue_count={issue_count}")
-                        else:
-                            logs.append("[INFO] Step 5: FileAgent - PASS")
+                        for file_hash, path in attachment_hashes:
+                            if hasattr(deps.file_client, "analyze_file"):
+                                file_resp = await deps.file_client.analyze_file(path)
+                            else:
+                                # Backward-compatible path for older File Agent contracts/tests.
+                                file_resp = await deps.file_client.analyze(
+                                    {
+                                        "email_id": parsed.subject,
+                                        "attachments": [{"path": path, "sha256": file_hash}],
+                                    }
+                                )
+
+                            file_label = str(file_resp.get("label", "safe")).lower()
+                            file_risk_level = str(file_resp.get("risk_level", "")).lower()
+                            file_risk_score = float(file_resp.get("risk_score", 0.0))
+
+                            if file_label in {"malicious", "phishing"} or file_risk_level in {"high", "critical"} or file_risk_score >= 0.7:
+                                termination_reason = f"FileAgent detected malicious attachment: {Path(path).name}"
+                                logs.append(f"[HALT] Step 5: {termination_reason}")
+                                decision = should_terminate(
+                                    issue_count=issue_count,
+                                    auth_failed=False,
+                                    malicious_detected=True,
+                                    reason=termination_reason,
+                                )
+                                break
+
+                            if file_risk_level == "medium" or file_risk_score >= 0.4:
+                                issue_count += 1
+                                logs.append(
+                                    f"[WARNING] Step 5: FileAgent suspicious ({Path(path).name}) - issue_count={issue_count}"
+                                )
+                            else:
+                                logs.append(f"[INFO] Step 5: FileAgent - PASS ({Path(path).name})")
                     except Exception as exc:  # pragma: no cover
                         if deps.settings.count_file_agent_unavailable_as_issue:
                             issue_count += 1

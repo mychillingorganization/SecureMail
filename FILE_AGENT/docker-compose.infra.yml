@@ -1,0 +1,25 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:alpine
+    container_name: file_agent_redis
+    ports:
+      - "6379:6379"
+    restart: always
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: file_agent_clamav
+    ports:
+      - "3310:3310"
+    environment:
+      - CLAMD_SETTINGS_TCPSOCK=3310
+      - CLAMD_SETTINGS_MAXSTREAMSIZE=100M
+      - FRESHCLAM_SETTINGS_INTERVAL=1800
+    volumes:
+      - clamav_data:/var/lib/clamav
+    restart: always
+
+volumes:
+  clamav_data:
