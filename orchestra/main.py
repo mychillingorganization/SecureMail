@@ -1,98 +1,142 @@
-"""
-SecureMail Orchestrator — FastAPI Application.
-Điểm vào chính cho dịch vụ điều phối pipeline phân tích email.
-"""
-
-import logging
-import time
+import os
+import tempfile
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from audit_logger import AuditLogger
-from config import get_settings
-from database import Database
-from fastapi import FastAPI, HTTPException
-from models import EmailScanRequest, ScanResult
-from pipeline import ReActPipeline
-from redis_bus import RedisBus
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-settings = get_settings()
+from email_agent.protocol_verifier import ProtocolVerifier
+from orchestra.clients import AgentClient
+from orchestra.config import get_settings
+from orchestra.database import engine, get_db_session
+from orchestra.models import Base
+from orchestra.pipeline import PipelineDependencies, execute_pipeline
+from orchestra.pipeline_deepdive import execute_pipeline_deepdive
+from orchestra.schemas import ScanRequest, ScanResponse
+from orchestra.threat_intel import ThreatIntelScanner
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Quản lý vòng đời ứng dụng: kết nối Redis, PostgreSQL khi khởi động."""
-    # Startup
-    logger.info("Orchestrator đang khởi động...")
-    try:
-        app.state.redis_bus = RedisBus(
-            redis_url=settings.REDIS_URL,
-            max_connections=settings.REDIS_MAX_CONNECTIONS,
-        )
-        await app.state.redis_bus.connect()
-        logger.info("Đã kết nối Redis")
-    except Exception as e:
-        logger.warning(f"Không thể kết nối Redis: {e} — tiếp tục với HTTP fallback")
-        app.state.redis_bus = None
-
-    try:
-        app.state.database = Database(settings.POSTGRES_URL)
-        await app.state.database.connect()
-        app.state.audit_logger = AuditLogger(app.state.database)
-        logger.info("Đã kết nối PostgreSQL")
-    except Exception as e:
-        logger.warning(f"Không thể kết nối PostgreSQL: {e} — audit logging tắt")
-        app.state.database = None
-        app.state.audit_logger = None
-
-    app.state.pipeline = ReActPipeline(
-        settings=settings,
-        redis_bus=app.state.redis_bus,
-        audit_logger=getattr(app.state, "audit_logger", None),
-    )
-    logger.info("Orchestrator sẵn sàng")
-
+async def lifespan(_app: FastAPI):
+    # Keep startup deterministic in local environments.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
 
-    # Shutdown
-    logger.info("Orchestrator đang tắt...")
-    if app.state.redis_bus:
-        await app.state.redis_bus.close()
-    if getattr(app.state, "database", None):
-        await app.state.database.disconnect()
-    logger.info("Orchestrator đã tắt")
 
+app = FastAPI(title="SecureMail Orchestrator", version="1.0.0", lifespan=lifespan)
 
-app = FastAPI(
-    title="SecureMail Orchestrator",
-    description="Dịch vụ điều phối pipeline phân tích bảo mật email",
-    version="1.0.0",
-    lifespan=lifespan,
-)
+QUICK_CHECK_HTML_PATH = Path(__file__).with_name("quick_check.html")
+QUICK_CHECK_HTML = QUICK_CHECK_HTML_PATH.read_text(encoding="utf-8")
 
 
 @app.get("/health")
-async def health_check():
-    """Endpoint kiểm tra sức khỏe của Orchestrator."""
+async def health() -> dict[str, str]:
     return {"status": "ok", "service": "orchestrator"}
 
 
-@app.post("/api/v1/scan", response_model=ScanResult)
-async def scan_email(request: EmailScanRequest):
-    """
-    Quét email qua pipeline ReAct.
-    Nhận email → suy luận → gọi agents → tính điểm → trả kết quả.
-    """
-    start_time = time.time()
+@app.post("/api/v1/scan", response_model=ScanResponse)
+async def scan_email(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
+    settings = get_settings()
+    threat_hashes = {item.strip() for item in settings.threat_intel_malicious_hashes.split(",") if item.strip()}
+
+    deps = PipelineDependencies(
+        settings=settings,
+        email_client=AgentClient(settings.email_agent_url, settings.request_timeout_seconds),
+        file_client=AgentClient(settings.file_agent_url, settings.request_timeout_seconds),
+        web_client=AgentClient(settings.web_agent_url, settings.request_timeout_seconds),
+        threat_scanner=ThreatIntelScanner(threat_hashes),
+        protocol_verifier=ProtocolVerifier(),
+    )
+
     try:
-        result = await app.state.pipeline.run(request)
-        result.processing_time_ms = (time.time() - start_time) * 1000
-        return result
-    except Exception as e:
-        logger.error(f"Lỗi pipeline cho email {request.email_id}: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Pipeline error: {str(e)}",
-        ) from e
+        return await execute_pipeline(
+            email_path=request.email_path,
+            session=session,
+            deps=deps,
+            user_accepts_danger=request.user_accepts_danger,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/scan-llm", response_model=ScanResponse)
+async def scan_email_llm(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
+    """LLM-based orchestrator: Deep-dive analysis with detailed threat reasoning."""
+    settings = get_settings()
+
+    try:
+        return await execute_pipeline_deepdive(
+            email_path=request.email_path,
+            session=session,
+            settings=settings,
+            user_accepts_danger=request.user_accepts_danger,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/scan-google-aistudio", response_model=ScanResponse)
+async def scan_email_google_aistudio(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
+    """Alias for LLM endpoint (deprecated, use /api/v1/scan-llm instead)."""
+    return await scan_email_llm(request, session)
+
+
+@app.post("/api/v1/scan-upload", response_model=ScanResponse)
+async def scan_uploaded_email(
+    file: UploadFile = File(...),
+    user_accepts_danger: bool = False,
+    session: AsyncSession = Depends(get_db_session),
+) -> ScanResponse:
+    filename = file.filename or "uploaded.eml"
+    if Path(filename).suffix.lower() != ".eml":
+        raise HTTPException(status_code=422, detail="Only .eml files are supported")
+
+    settings = get_settings()
+    threat_hashes = {item.strip() for item in settings.threat_intel_malicious_hashes.split(",") if item.strip()}
+    deps = PipelineDependencies(
+        settings=settings,
+        email_client=AgentClient(settings.email_agent_url, settings.request_timeout_seconds),
+        file_client=AgentClient(settings.file_agent_url, settings.request_timeout_seconds),
+        web_client=AgentClient(settings.web_agent_url, settings.request_timeout_seconds),
+        threat_scanner=ThreatIntelScanner(threat_hashes),
+        protocol_verifier=ProtocolVerifier(),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".eml") as tmp_file:
+        temp_path = tmp_file.name
+        tmp_file.write(await file.read())
+
+    try:
+        return await execute_pipeline(
+            email_path=temp_path,
+            session=session,
+            deps=deps,
+            user_accepts_danger=user_accepts_danger,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
+
+@app.get("/quick-check", response_class=HTMLResponse)
+async def quick_check_page() -> HTMLResponse:
+    return HTMLResponse(content=QUICK_CHECK_HTML)
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("orchestra.main:app", host="0.0.0.0", port=8080, reload=False)
