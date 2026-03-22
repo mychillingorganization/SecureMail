@@ -13,6 +13,7 @@ from orchestra.config import get_settings
 from orchestra.database import engine, get_db_session
 from orchestra.models import Base
 from orchestra.pipeline import PipelineDependencies, execute_pipeline
+from orchestra.pipeline_deepdive import execute_pipeline_deepdive
 from orchestra.schemas import ScanRequest, ScanResponse
 from orchestra.threat_intel import ThreatIntelScanner
 
@@ -61,6 +62,32 @@ async def scan_email(request: ScanRequest, session: AsyncSession = Depends(get_d
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/scan-llm", response_model=ScanResponse)
+async def scan_email_llm(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
+    """LLM-based orchestrator: Deep-dive analysis with detailed threat reasoning."""
+    settings = get_settings()
+
+    try:
+        return await execute_pipeline_deepdive(
+            email_path=request.email_path,
+            session=session,
+            settings=settings,
+            user_accepts_danger=request.user_accepts_danger,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/scan-google-aistudio", response_model=ScanResponse)
+async def scan_email_google_aistudio(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
+    """Alias for LLM endpoint (deprecated, use /api/v1/scan-llm instead)."""
+    return await scan_email_llm(request, session)
 
 
 @app.post("/api/v1/scan-upload", response_model=ScanResponse)
