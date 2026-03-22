@@ -1,0 +1,359 @@
+Initializing LLM Analyzer connecting to http://localhost:11434/api/generate using model qwen2.5:3b...
+Reading data from email_agent/data/Phishing_validation_emails.csv...
+
+Starting evaluation on 50 emails...
+==================================================
+
+[Test 1/50] Expected Label: SAFE
+Content: Dear Jordan, your subscription has been successfully renewed. Thank you for your continued support.
+CORRECT! (Processing Time: 33.78s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email contains a generic greeting and a standard statement about renewal without any calls to action, urgency, or requests for personal information.
+--------------------------------------------------
+
+[Test 2/50] Expected Label: SAFE
+Content: Dear Casey, thank you for your purchase. Your order will be shipped soon.
+INCORRECT! (Processing Time: 9.48s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email lacks any personalized information and is purely informational about an upcoming shipment with no calls to action or requests for personal data.
+--------------------------------------------------
+
+[Test 3/50] Expected Label: SAFE
+Content: Hi Drew, it was great meeting you at the conference. Let's catch up for coffee next week.
+CORRECT! (Processing Time: 9.53s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no calls to action or requests for personal information, which are red flags for phishing. It is merely a friendly reminder of an upcoming meeting.
+--------------------------------------------------
+
+[Test 4/50] Expected Label: SAFE
+Content: Hi Alex, it was great meeting you at the conference. Let's catch up for coffee next week.
+CORRECT! (Processing Time: 8.48s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email contains a generic greeting and asks for a future meeting, with no calls to action or requests for personal information.
+--------------------------------------------------
+
+[Test 5/50] Expected Label: SAFE
+Content: Hello Alex, here is your weekly update on the project's progress. Please review and provide feedback.
+CORRECT! (Processing Time: 10.17s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no calls to action or requests for personal information, which are red flags for phishing.
+--------------------------------------------------
+
+[Test 6/50] Expected Label: SAFE
+Content: Dear John, we are pleased to inform you about our upcoming webinar. Register now to secure your spot.
+CORRECT! (Processing Time: 9.40s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email does not contain any psychological triggers or requests for personal information. It is a generic welcome message for an upcoming webinar without urgency or immediate action needed.
+--------------------------------------------------
+
+[Test 7/50] Expected Label: SAFE
+Content: Dear Sam, thank you for your purchase. Your order will be shipped soon.
+INCORRECT! (Processing Time: 10.33s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email lacks personalization and uses a generic greeting with no subject line, followed by a standard order confirmation without any urgency or requests for information.
+--------------------------------------------------
+
+[Test 8/50] Expected Label: SAFE
+Content: Hi Morgan, please find the attached report for this month's performance review.
+CORRECT! (Processing Time: 9.17s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no calls to action or requests for personal information, which are red flags for phishing.
+--------------------------------------------------
+
+[Test 9/50] Expected Label: SAFE
+Content: Hi Morgan, please find the attached report for this month's performance review.
+CORRECT! (Processing Time: 7.91s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no calls to action or requests for personal information, making it a legitimate performance review notification.
+--------------------------------------------------
+
+[Test 10/50] Expected Label: SAFE
+Content: Hi Casey, just a reminder about the project deadline next Friday. Let's ensure everything is on track.
+CORRECT! (Processing Time: 10.15s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email is a reminder for a project deadline and does not contain any psychological triggers or requests for personal information. It lacks urgency, fear, curiosity, or unexpected content typical of phishing emails.
+--------------------------------------------------
+
+[Test 11/50] Expected Label: SAFE
+Content: Hi John, please find the attached report for this month's performance review.
+CORRECT! (Processing Time: 9.10s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no urgent calls to action or requests for personal information, which are typical signs of phishing.
+--------------------------------------------------
+
+[Test 12/50] Expected Label: SAFE
+Content: Please find attached the minutes from our last meeting. Let me know if you have any questions.
+CORRECT! (Processing Time: 11.11s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email contains a generic greeting and asks for questions regarding the attached meeting minutes, which are common in legitimate communication. There is no urgency, fear, curiosity, or request for personal information present.
+--------------------------------------------------
+
+[Test 13/50] Expected Label: SAFE
+Content: Reminder: Our meeting is scheduled for tomorrow at 10 AM. Please be prepared with your updates.
+CORRECT! (Processing Time: 8.37s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email is a legitimate meeting reminder with no psychological triggers or requests for personal information.
+--------------------------------------------------
+
+[Test 14/50] Expected Label: SAFE
+Content: Please find attached the minutes from our last meeting. Let me know if you have any questions.
+CORRECT! (Processing Time: 9.45s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no calls to action or requests for personal information, indicating it is likely a legitimate meeting reminder.
+--------------------------------------------------
+
+[Test 15/50] Expected Label: SAFE
+Content: Hi Jordan, please find the attached report for this month's performance review.
+CORRECT! (Processing Time: 8.82s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email contains a generic greeting and asks for an attached report, which are common in legitimate internal communications.
+--------------------------------------------------
+
+[Test 16/50] Expected Label: SAFE
+Content: Welcome to our newsletter! Stay tuned for the latest updates and offers.
+INCORRECT! (Processing Time: 9.51s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and asks for an immediate action to 'Renew', which are red flags for phishing.
+--------------------------------------------------
+
+[Test 17/50] Expected Label: SAFE
+Content: Dear Jane, we are pleased to inform you about our upcoming webinar. Register now to secure your spot.
+CORRECT! (Processing Time: 9.85s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and mentions an upcoming webinar, which is common for legitimate communications. There are no calls to action or requests for personal information.
+--------------------------------------------------
+
+[Test 18/50] Expected Label: SAFE
+Content: Hi Taylor, just a reminder about the project deadline next Friday. Let's ensure everything is on track.
+CORRECT! (Processing Time: 9.89s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email contains a generic greeting and a reminder about the project deadline, without any calls to action, requests for personal information, or urgency cues typical of phishing emails.
+--------------------------------------------------
+
+[Test 19/50] Expected Label: SAFE
+Content: Hi Drew, it was great meeting you at the conference. Let's catch up for coffee next week.
+CORRECT! (Processing Time: 8.91s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email contains a generic greeting and no calls to action or requests for personal information, indicating it is not phishing.
+--------------------------------------------------
+
+[Test 20/50] Expected Label: SAFE
+Content: Please find attached the minutes from our last meeting. Let me know if you have any questions.
+CORRECT! (Processing Time: 9.69s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email contains generic greeting and no calls to action, urgency, fear, or requests for personal information. It appears to be a legitimate meeting reminder.
+--------------------------------------------------
+
+[Test 21/50] Expected Label: SAFE
+Content: Welcome to our newsletter! Stay tuned for the latest updates and offers.
+INCORRECT! (Processing Time: 11.74s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting with no subject line, and it includes a call to action ('Stay tuned for the latest updates and offers') which is common in phishing attempts designed to prompt immediate user interaction.
+--------------------------------------------------
+
+[Test 22/50] Expected Label: SAFE
+Content: Welcome to our newsletter! Stay tuned for the latest updates and offers.
+INCORRECT! (Processing Time: 9.51s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic subject line 'No Subject' and a welcoming body that does not contain any specific content relevant to the recipient, which is typical of phishing attempts.
+--------------------------------------------------
+
+[Test 23/50] Expected Label: SAFE
+Content: Reminder: Our meeting is scheduled for tomorrow at 4 PM. Please be prepared with your updates.
+CORRECT! (Processing Time: 8.49s)
+  - Model Output: SAFE (Confidence: 1.0)
+  - Reasoning: The email contains a simple meeting reminder without any high-pressure tactics or requests for personal information.
+--------------------------------------------------
+
+[Test 24/50] Expected Label: SAFE
+Content: Hi Taylor, please find the attached report for this month's performance review.
+CORRECT! (Processing Time: 11.04s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and no call to action or requests for personal information. It simply informs the recipient about an attached report related to their performance review.
+--------------------------------------------------
+
+[Test 25/50] Expected Label: SAFE
+Content: Dear Jordan, thank you for your purchase. Your order will be shipped soon.
+CORRECT! (Processing Time: 8.79s)
+  - Model Output: SAFE (Confidence: 0.95)
+  - Reasoning: The email is a typical order confirmation message without any pressure or urgent calls to action.
+--------------------------------------------------
+
+[Test 26/50] Expected Label: PHISHING
+Content: Congratulations! You've won a $3000 gift card. Click here to claim your prize.
+CORRECT! (Processing Time: 11.63s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic greeting, uses the psychological trigger of winning a prize, and asks for immediate action without providing any additional context or sender information.
+--------------------------------------------------
+
+[Test 27/50] Expected Label: PHISHING
+Content: You have a new secure message from your bank. Click here to read it.
+CORRECT! (Processing Time: 22.73s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic subject line 'No Subject' and requests the recipient to click on a link to read a secure message from their bank, which is a common tactic used in phishing emails.
+--------------------------------------------------
+
+[Test 28/50] Expected Label: PHISHING
+Content: Your package delivery is pending. Please provide your personal information to confirm delivery.
+CORRECT! (Processing Time: 8.43s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email lacks a proper subject and uses urgent language ('pending') to request personal information for delivery confirmation.
+--------------------------------------------------
+
+[Test 29/50] Expected Label: PHISHING
+Content: Your package delivery is pending. Please provide your personal information to confirm delivery.
+CORRECT! (Processing Time: 9.96s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic subject line 'No Subject' and asks for personal information, which is a clear sign of a phishing attempt.
+--------------------------------------------------
+
+[Test 30/50] Expected Label: PHISHING
+Content: Alert: Unusual login attempt detected. Verify your account by clicking here.
+CORRECT! (Processing Time: 10.93s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email uses a generic greeting and a call to action (click here to verify your account), which are red flags for phishing.
+--------------------------------------------------
+
+[Test 31/50] Expected Label: PHISHING
+Content: Your subscription is about to expire. Renew now to continue enjoying our services.
+CORRECT! (Processing Time: 22.32s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email lacks a proper subject and uses urgent language ('Renew now') to prompt immediate action without providing any context or legitimate reason for the user.
+--------------------------------------------------
+
+[Test 32/50] Expected Label: PHISHING
+Content: Your subscription is about to expire. Renew now to continue enjoying our services.
+CORRECT! (Processing Time: 9.35s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and a call to action requesting immediate renewal, which are typical indicators of phishing.
+--------------------------------------------------
+
+[Test 33/50] Expected Label: PHISHING
+Content: Your package delivery is pending. Please provide your personal information to confirm delivery.
+CORRECT! (Processing Time: 9.99s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email lacks a subject and is generic, asking for personal information to confirm delivery which is a common tactic in phishing emails.
+--------------------------------------------------
+
+[Test 34/50] Expected Label: PHISHING
+Content: Important: Update your email account settings to avoid service interruption.
+CORRECT! (Processing Time: 10.02s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic greeting and a call to action with an urgent message about updating account settings, which are key indicators of a phishing attempt.
+--------------------------------------------------
+
+[Test 35/50] Expected Label: PHISHING
+Content: You have a new secure message from your bank. Click here to read it.
+CORRECT! (Processing Time: 11.90s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic subject 'No Subject' and calls for immediate action by asking the recipient to click on a link to read a new secure message from their bank, which is common in phishing attempts.
+--------------------------------------------------
+
+[Test 36/50] Expected Label: PHISHING
+Content: Alert: Unusual login attempt detected. Verify your account by clicking here.
+CORRECT! (Processing Time: 11.98s)
+  - Model Output: PHISHING (Confidence: 90.0)
+  - Reasoning: The email uses a generic greeting, prompts for immediate account verification with an action to be taken (click here), and implies urgency through the 'Alert: Unusual login attempt detected' message.
+--------------------------------------------------
+
+[Test 37/50] Expected Label: PHISHING
+Content: Dear Jane, your account has been compromised. Click the link to reset your password immediately.
+CORRECT! (Processing Time: 9.06s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic greeting ('Dear Jane') and requests an immediate action to reset a password, which are typical phishing tactics.
+--------------------------------------------------
+
+[Test 38/50] Expected Label: PHISHING
+Content: Dear Alex, your account has been compromised. Click the link to reset your password immediately.
+CORRECT! (Processing Time: 11.97s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic greeting ('Dear Alex') and requests immediate action by clicking a link to reset a password, which are common signs of a phishing attempt.
+--------------------------------------------------
+
+[Test 39/50] Expected Label: PHISHING
+Content: Your package delivery is pending. Please provide your personal information to confirm delivery.
+CORRECT! (Processing Time: 8.95s)
+  - Model Output: PHISHING (Confidence: 95.0)
+  - Reasoning: The email lacks a proper subject line and asks for personal information in an urgent manner, which are red flags indicative of a phishing attempt.
+--------------------------------------------------
+
+[Test 40/50] Expected Label: PHISHING
+Content: Congratulations! You've won a $1500 gift card. Click here to claim your prize.
+CORRECT! (Processing Time: 10.82s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic greeting, uses urgency as a psychological trigger by announcing a prize win, and asks the recipient to click on a link to claim the prize.
+--------------------------------------------------
+
+[Test 41/50] Expected Label: PHISHING
+Content: Congratulations! You've won a $1500 gift card. Click here to claim your prize.
+CORRECT! (Processing Time: 9.19s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic greeting, no subject line, and asks for immediate action (clicking a link to claim a prize), which are red flags for phishing.
+--------------------------------------------------
+
+[Test 42/50] Expected Label: PHISHING
+Content: We noticed some unusual activity in your account. Log in to review recent transactions.
+CORRECT! (Processing Time: 10.29s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email uses a generic greeting without a subject line and urges the recipient to log in immediately to review transactions, which are typical psychological triggers for phishing attempts.
+--------------------------------------------------
+
+[Test 43/50] Expected Label: PHISHING
+Content: Your package delivery is pending. Please provide your personal information to confirm delivery.
+CORRECT! (Processing Time: 9.79s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email has a generic subject line ('No Subject') and asks for personal information to confirm delivery, which are typical red flags in phishing attempts.
+--------------------------------------------------
+
+[Test 44/50] Expected Label: PHISHING
+Content: Your payment has been declined. Update your billing information to continue using our service.
+CORRECT! (Processing Time: 9.37s)
+  - Model Output: PHISHING (Confidence: 1.0)
+  - Reasoning: The email uses a generic greeting with no subject line and asks for an immediate action to update billing information, which is a clear indicator of a phishing attempt.
+--------------------------------------------------
+
+[Test 45/50] Expected Label: PHISHING
+Content: We noticed some unusual activity in your account. Log in to review recent transactions.
+CORRECT! (Processing Time: 19.77s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email uses a generic greeting and requests immediate action to review account transactions, which are common tactics in phishing emails.
+--------------------------------------------------
+
+[Test 46/50] Expected Label: PHISHING
+Content: Your payment has been declined. Update your billing information to continue using our service.
+CORRECT! (Processing Time: 10.05s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email uses a generic greeting and requests an immediate action (updating billing information) without providing any context or legitimacy, which are key indicators of a phishing attempt.
+--------------------------------------------------
+
+[Test 47/50] Expected Label: PHISHING
+Content: Your invoice is attached. Please review and pay promptly to avoid penalties.
+CORRECT! (Processing Time: 10.29s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic subject line 'No Subject' and requests an immediate payment without providing details on the invoice or explaining why prompt action is necessary.
+--------------------------------------------------
+
+[Test 48/50] Expected Label: PHISHING
+Content: Important: Update your email account settings to avoid service interruption.
+CORRECT! (Processing Time: 8.77s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic subject line 'No Subject' and requests an immediate update, which are red flags for phishing.
+--------------------------------------------------
+
+[Test 49/50] Expected Label: PHISHING
+Content: Your payment has been declined. Update your billing information to continue using our service.
+CORRECT! (Processing Time: 10.62s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email lacks a subject and uses generic language with a call to action (Update your billing information) that is likely part of a phishing attempt.
+--------------------------------------------------
+
+[Test 50/50] Expected Label: PHISHING
+Content: Alert: Unusual login attempt detected. Verify your account by clicking here.
+CORRECT! (Processing Time: 20.02s)
+  - Model Output: PHISHING (Confidence: 0.95)
+  - Reasoning: The email has a generic subject line 'No Subject' and requests an immediate account verification, which are red flags for phishing.
+--------------------------------------------------
+
+==================================================
+SUMMARY: Correct 45/50 (90.00%)
+✅ GOOD: Accuracy >= 80%. Consider tuning the prompt for edge cases.

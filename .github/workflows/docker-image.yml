@@ -1,0 +1,81 @@
+# =============================================
+# SecureMail — Docker Compose CI Workflow
+# =============================================
+
+name: Docker Compose CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  docker-compose:
+    name: Build & Smoke Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Source code ────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Docker Buildx ──────────────────────────────────────────
+      # Required for dockerfile_inline syntax and GitHub Actions cache (gha)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── 3. Validate compose file syntax ───────────────────────────
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+      # ── 4. Build all custom service images ────────────────────────
+      # Automatically reads the cache_from/cache_to rules in compose file
+      - name: Build custom service images
+        run: |
+          docker compose build \
+            orchestrator \
+            email-agent \
+            file-agent \
+            web-agent
+
+      # ── 5. Start core services and wait for health ────────────────
+      # Uses --wait to pause the pipeline until all services report as healthy.
+      # Excludes heavy services: ollama, clamav
+      - name: Start core services
+        env:
+          POSTGRES_PASSWORD: securemail
+        run: |
+          docker compose up -d --wait \
+            redis \
+            postgres \
+            email-agent \
+            file-agent \
+            web-agent \
+            orchestrator
+
+      # ── 6. Smoke-test every agent health endpoint ─────────────────
+      # Uses grep without the -q flag to prevent SIGPIPE errors from breaking the pipeline
+      - name: Smoke test — orchestrator (/health)
+        run: curl -sf http://localhost:8080/health | tee /dev/stderr | grep '"ok"'
+
+      - name: Smoke test — email-agent (/health)
+        run: curl -sf http://localhost:8000/health | tee /dev/stderr | grep '"ok"'
+
+      - name: Smoke test — file-agent (/health)
+        run: curl -sf http://localhost:8001/health | tee /dev/stderr | grep '"ok"'
+
+      - name: Smoke test — web-agent (/health)
+        run: curl -sf http://localhost:8002/health | tee /dev/stderr | grep '"ok"'
+
+      # ── 7. Debug output on failure ────────────────────────────────
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose logs --tail=100
+
+      # ── 8. Clean up ───────────────────────────────────────────────
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans

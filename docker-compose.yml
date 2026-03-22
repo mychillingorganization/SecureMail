@@ -1,12 +1,17 @@
 # =============================================
 # SecureMail — Docker Compose Configuration
-# Tất cả services cho hệ thống phân tích bảo mật email
 # =============================================
 
 services:
-  # --- Orchestrator (điều phối chính) ---
+  # --- Orchestrator (Main Coordinator) ---
   orchestrator:
-    build: ./orchestra
+    build: 
+      context: .
+      dockerfile: orchestra/Dockerfile
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-orchestrator
     ports:
       - "8080:8080"
@@ -38,9 +43,15 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Email Agent (phân tích email) ---
+  # --- Email Agent (Analysis) ---
   email-agent:
-    build: ./email_agent
+    build: 
+      context: .
+      dockerfile: email_agent/Dockerfile
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-email-agent
     ports:
       - "8000:8000"
@@ -60,18 +71,15 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- File Agent (stub — phân tích tệp đính kèm) ---
+  # --- File Agent (Stub) ---
   file-agent:
     build:
-      context: ./stubs
-      dockerfile_inline: |
-        FROM python:3.11-slim
-        WORKDIR /app
-        COPY requirements.txt .
-        RUN pip install --no-cache-dir -r requirements.txt
-        COPY file_agent_stub.py main.py
-        EXPOSE 8001
-        CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+      context: .
+      dockerfile: stubs/Dockerfile
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-file-agent
     ports:
       - "8001:8001"
@@ -85,34 +93,42 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Web Agent (stub — phân tích URL) ---
+  # --- Web Agent (XGBoost Phishing Detector) ---
   web-agent:
     build:
-      context: ./stubs
-      dockerfile_inline: |
-        FROM python:3.11-slim
-        WORKDIR /app
-        COPY requirements.txt .
-        RUN pip install --no-cache-dir -r requirements.txt
-        COPY web_agent_stub.py main.py
-        EXPOSE 8002
-        CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
+      context: .
+      dockerfile: web_agent/Dockerfile
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-web-agent
     ports:
       - "8002:8002"
+    environment:
+      - MODEL_PATH=/app/xgboost_phishing_model.json
+      - WHITELIST_FILE=/app/whitelist.txt
+      - BLACKLIST_FILE=/app/blacklist.txt
+      - BLACKLIST_FETCH_TIMEOUT=8
+      - POSTGRES_URL=postgresql+asyncpg://securemail:${POSTGRES_PASSWORD:-securemail}@postgres:5432/securemail
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     networks:
       - securemail
     restart: unless-stopped
 
-  # --- Ollama (LLM on-premise) ---
+  # --- Ollama (Heavy ML Model - Excluded from CI) ---
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: ./ollama
+      cache_from:
+        - type=gha
+      cache_to:
+        - type=gha,mode=max
     container_name: securemail-ollama
     ports:
       - "11434:11434"
@@ -128,7 +144,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- Redis (message bus + cache) ---
+  # --- Redis (Message Bus/Cache) ---
   redis:
     image: redis:7-alpine
     container_name: securemail-redis
@@ -146,7 +162,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- PostgreSQL (audit log + persistence) ---
+  # --- PostgreSQL (Database) ---
   postgres:
     image: postgres:16-alpine
     container_name: securemail-postgres
@@ -168,7 +184,7 @@ services:
       - securemail
     restart: unless-stopped
 
-  # --- ClamAV (quét malware tệp đính kèm) ---
+  # --- ClamAV (Heavy Malware Scanner - Excluded from CI) ---
   clamav:
     image: clamav/clamav:latest
     container_name: securemail-clamav
@@ -181,7 +197,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 120s  # ClamAV cần 2-5 phút để tải DB chữ ký
+      start_period: 120s 
     networks:
       - securemail
     restart: unless-stopped
