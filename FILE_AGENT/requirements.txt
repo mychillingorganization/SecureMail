@@ -1,0 +1,58 @@
+# --- Web Framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+requests>=2.32.0               # optional utility HTTP calls
+
+# --- Pydantic & Settings ---
+pydantic==2.8.2
+pydantic-settings==2.4.0      # đọc .env → config.py
+
+# --- Static Analysis ---
+pefile==2023.2.7               # PE header analysis
+yara-python==4.5.1             # YARA rule scanning
+oletools==0.60.2               # VBA macro analysis
+pyclamd==0.4.0                 # ClamAV client
+python-magic==0.4.27           # magic bytes → file type detection
+
+# --- Feature Extraction (PDF / Word / Excel) ---
+PyMuPDF>=1.24.0                # fitz — PDF text/image/xref extraction
+PyPDF2>=3.0.0                  # PDF metadata, stream parsing
+pdfminer.six>=20221105         # PDF text fallback extraction
+olefile>=0.47                  # legacy .doc/.dot OLE container traversal
+openpyxl>=3.1.0                # .xlsx/.xlsm read/write
+xlrd>=2.0.1                    # legacy .xls reading
+pyxlsb>=1.0.10                 # .xlsb reading (optional)
+pillow>=10.0.0                 # image loading/processing (QR + Excel OCR)
+pyzbar>=0.1.9                  # QR/barcode decode (primary)
+opencv-python-headless>=4.9.0  # QR decode fallback
+numpy>=1.26.0                  # pixel stats for QR images
+
+# --- Archive Analysis ---
+py7zr>=0.22.0                  # .7z files
+rarfile>=4.2                   # .rar files
+
+# --- Database & Cache ---
+redis[asyncio]==5.0.8          # ✅ cần [asyncio] cho async support
+asyncpg==0.29.0                # ✅ async PostgreSQL (thay psycopg2)
+sqlalchemy[asyncio]==2.0.35    # async ORM
+docker>=7.1.0                  # Docker SDK for dynamic sandbox orchestration
+
+# --- Utilities ---
+python-dotenv==1.0.1
+structlog==24.4.0              # structured logging
+
+# --- Machine Learning (XGBoost classifier) ---
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+pandas>=2.0.0
+numpy>=1.26.0
+joblib>=1.3.0
+
+# --- Testing ---
+pytest==8.3.2
+pytest-asyncio==0.23.8
+pillow==10.4.0
+pyzbar==0.1.9
+opencv-python-headless==4.10.0.84
+numpy>=1.26.0
