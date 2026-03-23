@@ -12,11 +12,14 @@ block at import time.
 """
 
 import asyncio
+import ipaddress
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -39,6 +42,120 @@ _model: PhishingModel | None = None
 
 # Background refresh task (if enabled)
 _refresh_task: asyncio.Task | None = None
+
+_HOSTNAME_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+
+
+def _hostname_validation_error(hostname: str | None) -> str | None:
+    """Return a concrete hostname validation error, or ``None`` when valid.
+
+    Accepts:
+    - Valid DNS hostnames (including IDN domains after IDNA conversion)
+    - Valid IPv4 / IPv6 literals
+    """
+    if not hostname:
+        return "hostname is missing"
+
+    candidate = hostname.strip().rstrip(".")
+    if not candidate or len(candidate) > 253:
+        return "hostname is empty or too long"
+
+    # Accept direct IP literals.
+    try:
+        ipaddress.ip_address(candidate)
+        return None
+    except ValueError:
+        pass
+
+    # Reject obvious malformed cases early.
+    if " " in candidate or ".." in candidate:
+        return "hostname contains spaces or empty labels"
+
+    try:
+        ascii_host = candidate.encode("idna").decode("ascii")
+    except UnicodeError:
+        return "hostname IDNA encoding failed"
+
+    labels = ascii_host.split(".")
+    if any(not label for label in labels):
+        return "hostname contains empty labels"
+
+    if not all(_HOSTNAME_LABEL_RE.fullmatch(label) is not None for label in labels):
+        return "hostname label format is invalid"
+
+    return None
+
+
+def _is_valid_hostname(hostname: str | None) -> bool:
+    return _hostname_validation_error(hostname) is None
+
+
+def _normalize_and_validate_urls(urls: list[str]) -> list[str]:
+    """Normalize URLs and enforce strict scheme/hostname validation.
+
+    Raises:
+        HTTPException: 422 if any URL is malformed.
+    """
+    normalized_urls: list[str] = []
+
+    def _raise_invalid_url(
+        index: int,
+        raw_url: str,
+        normalized_url: str | None,
+        code: str,
+        reason: str,
+    ) -> None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": code,
+                "index": index,
+                "url": raw_url,
+                "normalized_url": normalized_url,
+                "reason": reason,
+            },
+        )
+
+    for index, raw_url in enumerate(urls):
+        normalized_input = str(raw_url).strip()
+        if not normalized_input:
+            _raise_invalid_url(
+                index=index,
+                raw_url=str(raw_url),
+                normalized_url=None,
+                code="invalid_url_empty",
+                reason="empty URL is not allowed",
+            )
+
+        normalized_url = (
+            normalized_input
+            if normalized_input.startswith(("http://", "https://"))
+            else f"https://{normalized_input}"
+        )
+
+        parsed = urlparse(normalized_url)
+        if parsed.scheme not in {"http", "https"}:
+            _raise_invalid_url(
+                index=index,
+                raw_url=normalized_input,
+                normalized_url=normalized_url,
+                code="invalid_url_scheme",
+                reason="scheme must be http/https",
+            )
+
+        hostname_error = _hostname_validation_error(parsed.hostname)
+        if hostname_error is not None:
+            _raise_invalid_url(
+                index=index,
+                raw_url=normalized_input,
+                normalized_url=normalized_url,
+                code="invalid_url_hostname",
+                reason=hostname_error,
+            )
+
+        normalized_urls.append(normalized_url)
+
+    return normalized_urls
 
 async def _run_background_refresh_loop() -> None:
     """Background task for periodic threat list refresh.
@@ -204,7 +321,9 @@ async def health_check() -> dict[str, Any]:
 
 @app.post("/api/v1/analyze", response_model=AnalyzeResponse)
 async def analyze_urls(request: AnalyzeRequest) -> AnalyzeResponse:
-    return await _run_analysis(request)
+    normalized_urls = _normalize_and_validate_urls(request.urls)
+    normalized_request = AnalyzeRequest(email_id=request.email_id, urls=normalized_urls)
+    return await _run_analysis(normalized_request)
 
 
 @app.post("/api/v1/analyze-urls-json", response_model=AnalyzeResponse)
@@ -222,7 +341,9 @@ async def analyze_urls_json(request: AnalyzeUrlsJsonRequest) -> AnalyzeResponse:
             detail=f"Too many URLs in urls_json.urls (max {MAX_URLS_PER_REQUEST})",
         )
 
-    normalized_request = AnalyzeRequest(email_id=request.email_id, urls=urls)
+    normalized_urls = _normalize_and_validate_urls(urls)
+
+    normalized_request = AnalyzeRequest(email_id=request.email_id, urls=normalized_urls)
     return await _run_analysis(normalized_request)
 
 
@@ -323,35 +444,67 @@ async def _analyse_url(url: str) -> dict:
       3. Feature extraction + XGBoost inference.
     """
     try:
-        # ── Step 1: Blacklist fast-path (raw URL) ──────────────────────────
-        if is_blacklisted(url):
-            logger.info("URL blacklisted: %s", url)
+        # ── Step 0: Normalize + validate input URL ─────────────────────────
+        normalized_input = str(url).strip()
+        if not normalized_input:
             return {
                 "url": url, "input_url": url,
+                "risk_score": 0.5, "confidence": 0.0,
+                "label": "phishing", "source": "error",
+                "html_features_used": False,
+                "redirection_chain": [url],
+            }
+
+        normalized_url = (
+            normalized_input
+            if normalized_input.startswith(("http://", "https://"))
+            else f"https://{normalized_input}"
+        )
+
+        parsed = urlparse(normalized_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or not _is_valid_hostname(parsed.hostname)
+        ):
+            logger.info("Invalid URL rejected before list/model checks: %s", url)
+            return {
+                "url": normalized_url, "input_url": url,
+                "risk_score": 0.5, "confidence": 0.0,
+                "label": "phishing", "source": "error",
+                "html_features_used": False,
+                "redirection_chain": [normalized_url],
+            }
+
+        # ── Step 1: Blacklist fast-path (normalized URL) ───────────────────
+        if is_blacklisted(normalized_url):
+            logger.info("URL blacklisted: %s", url)
+            return {
+                "url": normalized_url, "input_url": url,
                 "risk_score": 0.99, "confidence": 0.98,
                 "label": "phishing", "source": "blacklist",
                 "html_features_used": False,
-                "redirection_chain": [url],
+                "redirection_chain": [normalized_url],
             }
 
-        # ── Step 2: Whitelist fast-path (raw URL) ──────────────────────────
-        if is_whitelisted(url):
+        # ── Step 2: Whitelist fast-path (normalized URL) ───────────────────
+        if is_whitelisted(normalized_url):
             logger.info("URL whitelisted: %s", url)
             return {
-                "url": url, "input_url": url,
+                "url": normalized_url, "input_url": url,
                 "risk_score": 0.01, "confidence": 0.98,
                 "label": "safe", "source": "whitelist",
                 "html_features_used": False,
-                "redirection_chain": [url],
+                "redirection_chain": [normalized_url],
             }
 
         # ── Step 3: Resolve URL and fetch HTML context ─────────────────────
-        fetched_url, html_content, redirection_chain = await fetch_url_context(url)
-        analysis_url = fetched_url or url
+        fetched_url, html_content, redirection_chain = await fetch_url_context(normalized_url)
+        analysis_url = fetched_url or normalized_url
 
         # ── Step 4: Re-check lists on resolved URL and intermediate redirects ──
         for chain_url in redirection_chain:
-            if chain_url != url and is_blacklisted(chain_url):
+            if chain_url != normalized_url and is_blacklisted(chain_url):
                 logger.info("Redirect chain URL blacklisted: %s -> ... -> %s", url, chain_url)
                 return {
                     "url": analysis_url, "input_url": url,
