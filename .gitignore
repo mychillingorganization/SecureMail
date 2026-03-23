@@ -182,3 +182,16 @@ web_agent/config.py
 .vscode/
 api_test/upload_test.html
 api_test/index.html
+test5.eml
+test6_scan_output.json
+test6.eml
+test7_scan_llm_output.json
+test7_scan_output.json
+test7.eml
+email_agent/__pycache__/protocol_verifier.cpython-312.pyc
+email_agent/__pycache__/protocol_verifier.cpython-313.pyc
+email_agent/tests/__pycache__/__init__.cpython-312.pyc
+orchestra/tests/test_pipeline.py
+email_agent/__pycache__/protocol_verifier.cpython-312.pyc
+email_agent/__pycache__/protocol_verifier.cpython-313.pyc
+email_agent/tests/__pycache__/__init__.cpython-312.pyc
