@@ -1,0 +1,511 @@
+{
+  "schema_version": "1.0",
+  "description": "Template for SecureMail scan request/response with resilient agent states",
+  "notes": [
+    "Use request_templates for calling orchestrator endpoints.",
+    "Use response_templates to normalize UI and downstream processing.",
+    "When an agent is unavailable, keep the agent object with status=missing."
+  ],
+  "section_explanations": {
+    "schema_version": "Version of this template format. Increase only when structure changes.",
+    "description": "Human-readable purpose of this template file.",
+    "notes": "Quick operating notes for developers and QA.",
+    "request_templates": "Canonical request payloads per orchestrator endpoint.",
+    "response_templates": "Normalized response payloads for each runtime scenario.",
+    "normalization_rules": "Mandatory rules to keep downstream consumers stable.",
+    "why_meta_exists": "meta carries traceability fields (request_id/timestamp/version) for audit and debugging.",
+    "why_runtime_exists": "runtime states degraded_mode and missing_agents so UI/services can show partial availability clearly.",
+    "why_orchestrator_exists": "orchestrator is the final source-of-truth for verdict and execution logs.",
+    "why_agents_exists": "agents keeps per-agent detail even when unavailable/skipped to avoid schema breaks.",
+    "why_keep_missing_agent_object": "A fixed object shape prevents null checks and fragile client parsing when an agent is down."
+  },
+  "field_guide": {
+    "meta": {
+      "request_id": "Unique ID to correlate logs across services.",
+      "timestamp": "ISO-8601 UTC time of generated result.",
+      "version": "Response schema version for compatibility checks."
+    },
+    "runtime": {
+      "degraded_mode": "true when one or more agents are unavailable.",
+      "missing_agents": "List of unavailable agent names.",
+      "available_agents": "Boolean map of current agent availability."
+    },
+    "orchestrator": {
+      "final_status": "PASS | WARNING | DANGER from orchestration policy.",
+      "issue_count": "Total warning counters accumulated during pipeline.",
+      "termination_reason": "Populated when early termination/kill-switch happened.",
+      "execution_logs": "Ordered step logs for debugging and explainability."
+    },
+    "agent_object": {
+      "enabled": "Whether this agent was expected to run in this scenario.",
+      "status": "ok | missing | skipped | error.",
+      "risk_score": "Normalized risk number used for downstream interpretation.",
+      "label": "safe | suspicious | malicious | unknown.",
+      "issues": "List of detected indicators from that agent.",
+      "error": "Human-readable error when unavailable/failure.",
+      "raw": "Original pass-through payload from the agent for deep debugging."
+    }
+  },
+  "request_templates": {
+    "scan_basic": {
+      "endpoint": "/api/v1/scan",
+      "method": "POST",
+      "body": {
+        "email_path": "./test4.eml",
+        "user_accepts_danger": false
+      }
+    },
+    "scan_llm": {
+      "endpoint": "/api/v1/scan-llm",
+      "method": "POST",
+      "body": {
+        "email_path": "./test4.eml",
+        "user_accepts_danger": false
+      }
+    },
+    "scan_upload": {
+      "endpoint": "/api/v1/scan-upload",
+      "method": "POST",
+      "multipart": {
+        "file": "<binary .eml file>",
+        "user_accepts_danger": false
+      }
+    }
+  },
+  "response_templates": {
+    "_case_explanations": {
+      "case_1_all_agents_ok": "Happy path: all agents available and verdict is PASS.",
+      "case_2_missing_file_agent": "Degraded path: file agent missing but pipeline still runs.",
+      "case_3_missing_web_agent": "Degraded path: web agent missing but pipeline still runs.",
+      "case_4_only_email_agent_available": "Only email agent is up; missing agents push issue_count to threshold.",
+      "case_5_hard_stop_auth_failure": "Early termination at protocol check (SPF/DKIM/DMARC failed).",
+      "case_6_malicious_attachment_detected": "Early termination at threat-intel hash triage for attachment.",
+      "case_7_total_failure": "All agents unavailable; orchestrator still returns deterministic DANGER output."
+    },
+    "case_1_all_agents_ok": {
+      "meta": {
+        "request_id": "scan_20260322_0001",
+        "timestamp": "2026-03-22T10:30:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": false,
+        "missing_agents": [],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": true,
+          "web_agent": true
+        }
+      },
+      "orchestrator": {
+        "final_status": "PASS",
+        "issue_count": 0,
+        "termination_reason": null,
+        "execution_logs": [
+          "[INFO] Step 1: parse_eml() - SUCCESS",
+          "[INFO] Step 2: protocol verification - SPF=True DKIM=True DMARC=True",
+          "[INFO] Step 4: EmailAgent - PASS",
+          "[INFO] Step 5: FileAgent - PASS",
+          "[INFO] Step 6: WebAgent - PASS",
+          "[INFO] Step 7: Final verdict = PASS"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.08,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.12,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.15,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        }
+      }
+    },
+    "case_2_missing_file_agent": {
+      "meta": {
+        "request_id": "scan_20260322_0002",
+        "timestamp": "2026-03-22T10:31:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": true,
+        "missing_agents": [
+          "file_agent"
+        ],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": false,
+          "web_agent": true
+        }
+      },
+      "orchestrator": {
+        "final_status": "WARNING",
+        "issue_count": 1,
+        "termination_reason": null,
+        "execution_logs": [
+          "[INFO] Step 4: EmailAgent - PASS",
+          "[WARNING] Step 5: FileAgent unavailable - issue_count incremented",
+          "[INFO] Step 6: WebAgent - PASS",
+          "[INFO] Step 7: Final verdict = WARNING"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.22,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.31,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        }
+      }
+    },
+    "case_3_missing_web_agent": {
+      "meta": {
+        "request_id": "scan_20260322_0003",
+        "timestamp": "2026-03-22T10:32:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": true,
+        "missing_agents": [
+          "web_agent"
+        ],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": true,
+          "web_agent": false
+        }
+      },
+      "orchestrator": {
+        "final_status": "WARNING",
+        "issue_count": 1,
+        "termination_reason": null,
+        "execution_logs": [
+          "[INFO] Step 4: EmailAgent - PASS",
+          "[INFO] Step 5: FileAgent - PASS",
+          "[WARNING] Step 6: WebAgent unavailable - issue_count incremented",
+          "[INFO] Step 7: Final verdict = WARNING"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.19,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.18,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        }
+      }
+    },
+    "case_4_only_email_agent_available": {
+      "meta": {
+        "request_id": "scan_20260322_0004",
+        "timestamp": "2026-03-22T10:33:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": true,
+        "missing_agents": [
+          "file_agent",
+          "web_agent"
+        ],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": false,
+          "web_agent": false
+        }
+      },
+      "orchestrator": {
+        "final_status": "DANGER",
+        "issue_count": 2,
+        "termination_reason": "Issue threshold reached",
+        "execution_logs": [
+          "[WARNING] Step 5: FileAgent unavailable - issue_count incremented",
+          "[WARNING] Step 6: WebAgent unavailable - issue_count incremented",
+          "[HALT] Step 6: Issue threshold reached",
+          "[INFO] Step 7: Final verdict = DANGER"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": true,
+          "status": "ok",
+          "risk_score": 0.28,
+          "label": "safe",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        }
+      }
+    },
+    "case_5_hard_stop_auth_failure": {
+      "meta": {
+        "request_id": "scan_20260322_0005",
+        "timestamp": "2026-03-22T10:34:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": false,
+        "missing_agents": [],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": true,
+          "web_agent": true
+        }
+      },
+      "orchestrator": {
+        "final_status": "DANGER",
+        "issue_count": 0,
+        "termination_reason": "Auth Failure: SPF/DKIM/DMARC failed",
+        "execution_logs": [
+          "[INFO] Step 2: protocol verification - SPF=False DKIM=False DMARC=False",
+          "[HALT] Step 2: Auth Failure: SPF/DKIM/DMARC failed",
+          "[INFO] Step 7: Final verdict = DANGER"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        }
+      }
+    },
+    "case_6_malicious_attachment_detected": {
+      "meta": {
+        "request_id": "scan_20260322_0006",
+        "timestamp": "2026-03-22T10:35:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": false,
+        "missing_agents": [],
+        "available_agents": {
+          "email_agent": true,
+          "file_agent": true,
+          "web_agent": true
+        }
+      },
+      "orchestrator": {
+        "final_status": "DANGER",
+        "issue_count": 0,
+        "termination_reason": "Malicious file hash detected: abc123...",
+        "execution_logs": [
+          "[HALT] Step 3: Malicious file hash detected",
+          "[INFO] Step 7: Final verdict = DANGER"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": false,
+          "status": "skipped",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": null,
+          "raw": {}
+        }
+      }
+    },
+    "case_7_total_failure": {
+      "meta": {
+        "request_id": "scan_20260322_0007",
+        "timestamp": "2026-03-22T10:36:00Z",
+        "version": "1.0"
+      },
+      "runtime": {
+        "degraded_mode": true,
+        "missing_agents": [
+          "email_agent",
+          "file_agent",
+          "web_agent"
+        ],
+        "available_agents": {
+          "email_agent": false,
+          "file_agent": false,
+          "web_agent": false
+        }
+      },
+      "orchestrator": {
+        "final_status": "DANGER",
+        "issue_count": 2,
+        "termination_reason": "Issue threshold reached",
+        "execution_logs": [
+          "[WARNING] Step 4: EmailAgent unavailable - issue_count incremented",
+          "[WARNING] Step 5: FileAgent unavailable - issue_count incremented",
+          "[HALT] Step 5: Issue threshold reached",
+          "[INFO] Step 7: Final verdict = DANGER"
+        ]
+      },
+      "agents": {
+        "email_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        },
+        "file_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        },
+        "web_agent": {
+          "enabled": false,
+          "status": "missing",
+          "risk_score": 0.0,
+          "label": "unknown",
+          "issues": [],
+          "error": "agent unavailable",
+          "raw": {}
+        }
+      }
+    }
+  },
+  "normalization_rules": {
+    "_comment": "Apply these rules before rendering UI or forwarding result to downstream systems.",
+    "required_top_level_fields": [
+      "meta",
+      "runtime",
+      "orchestrator",
+      "agents"
+    ],
+    "required_agents": [
+      "email_agent",
+      "file_agent",
+      "web_agent"
+    ],
+    "missing_agent_defaults": {
+      "enabled": false,
+      "status": "missing",
+      "risk_score": 0.0,
+      "label": "unknown",
+      "issues": [],
+      "error": "agent unavailable",
+      "raw": {}
+    }
+  }
+}
