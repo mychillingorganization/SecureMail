@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +28,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="SecureMail Orchestrator", version="1.0.0", lifespan=lifespan)
+
+settings = get_settings()
+origins = [item.strip() for item in settings.cors_allow_origins.split(",") if item.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins or ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 QUICK_CHECK_HTML_PATH = Path(__file__).with_name("quick_check.html")
 QUICK_CHECK_HTML = QUICK_CHECK_HTML_PATH.read_text(encoding="utf-8")

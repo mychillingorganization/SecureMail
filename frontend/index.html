@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SecureMail Quick Console</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header>
+        <h1>SecureMail Quick Console</h1>
+        <p>Emergency test UI for scan and deepdive flows.</p>
+      </header>
+
+      <section class="card">
+        <h2>Run Scan</h2>
+        <label for="emailPath">Email path</label>
+        <input id="emailPath" type="text" value="/home/passla1/projects/SecureMail/test7.eml" />
+
+        <div class="actions">
+          <button id="scanBtn">Scan</button>
+          <button id="scanLlmBtn">Scan DeepDive</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Verdict</h2>
+        <div id="verdict" class="verdict">No result</div>
+        <div id="summary" class="summary"></div>
+      </section>
+
+      <section class="card">
+        <h2>Danger Reasons</h2>
+        <ul id="dangerReasons"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Safe Reasons</h2>
+        <ul id="safeReasons"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Execution Logs</h2>
+        <pre id="logs"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Raw JSON</h2>
+        <pre id="raw"></pre>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
