@@ -66,6 +66,38 @@ graph TD
    - `postgres` (Port 5432)
    - `ollama` (Local LLM service)
 
+### Local Fast Test Workflow (WSL2-Friendly)
+
+If testing feels manual, it is usually because reasoning is automated but service orchestration is still manual.
+Use the helper script to make local testing one-command.
+
+1. Start local services and wait for health:
+   ```bash
+   python3 scripts/devctl.py up
+   ```
+
+2. Check service status:
+   ```bash
+   python3 scripts/devctl.py status
+   ```
+
+3. Run test7 with deepdive (AI Agent path):
+   ```bash
+   python3 scripts/devctl.py test7 --llm
+   ```
+   Output file default:
+   - `test7_scan_llm_ai_agent_output.json`
+
+4. Stop services started by helper:
+   ```bash
+   python3 scripts/devctl.py down
+   ```
+
+WSL2 notes:
+- Keep project under Linux filesystem (`/home/...`) for better IO performance.
+- If frontend runs on Windows host and backend in WSL2, call API using WSL2 IP or configured CORS origins.
+- Avoid relying on transient shell env vars for long sessions; prefer `.env` so restarts are deterministic.
+
 ---
 
 ## 🛠 Agent Details

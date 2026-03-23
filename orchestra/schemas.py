@@ -13,6 +13,12 @@ class ScanResponse(BaseModel):
     issue_count: int
     termination_reason: str | None
     execution_logs: list[str]
+    ai_classify: str | None = None
+    ai_reason: str | None = None
+    ai_summary: str | None = None
+    ai_provider: str | None = None
+    ai_confidence_percent: int | None = None
+    ai_cot_steps: list[str] = Field(default_factory=list)
 
 
 class AuditEntry(BaseModel):

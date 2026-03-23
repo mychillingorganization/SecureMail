@@ -49,6 +49,13 @@ def _verdict_type_from_status(status: str) -> VerdictType:
     return VerdictType.safe
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
     url_hash = _hash_url(raw_url)
     db_obj = await session.get(Url, url_hash)
@@ -207,15 +214,28 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     try:
                         web_resp = await deps.web_client.analyze({"email_id": parsed.subject, "urls": urls})
                         web_label = str(web_resp.get("label", "safe")).lower()
-                        if web_label in {"malicious", "phishing"}:
-                            termination_reason = "WebAgent detected phishing URL"
+                        web_risk = _safe_float(web_resp.get("risk_score", 0.0))
+                        url_analysis = web_resp.get("checks", {}).get("url_analysis", [])
+                        suspicious_urls: list[str] = []
+                        if isinstance(url_analysis, list):
+                            for item in url_analysis:
+                                if not isinstance(item, dict):
+                                    continue
+                                item_label = str(item.get("label", "safe")).lower()
+                                item_risk = _safe_float(item.get("risk_score", 0.0))
+                                if item_label in {"malicious", "phishing"} or item_risk >= 0.5:
+                                    suspicious_urls.append(str(item.get("input_url") or item.get("url") or "unknown-url"))
+
+                        if web_label in {"malicious", "phishing"} or suspicious_urls:
+                            flagged = suspicious_urls[0] if suspicious_urls else "unknown-url"
+                            termination_reason = f"WebAgent detected phishing URL: {flagged}"
                             logs.append(f"[HALT] Step 6: {termination_reason}")
                             decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
-                        elif web_resp.get("risk_score", 0.0) >= 0.5:
+                        elif web_risk >= 0.5:
                             issue_count += 1
                             logs.append(f"[WARNING] Step 6: WebAgent suspicious - issue_count={issue_count}")
                         else:
-                            logs.append("[INFO] Step 6: WebAgent - PASS")
+                            logs.append(f"[INFO] Step 6: WebAgent - PASS (risk_score={web_risk:.4f})")
                     except Exception as exc:  # pragma: no cover
                         issue_count += 1
                         logs.append(f"[WARNING] Step 6: WebAgent unavailable ({exc}) - issue_count={issue_count}")

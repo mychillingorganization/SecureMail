@@ -468,6 +468,27 @@ class ProtocolVerifier:
             return result
         except Exception as e:
             logger.warning(f"Live protocol verification failed, fallback to headers: {type(e).__name__}: {e}")
+            # Graceful degradation: run partial checks even when transport headers are missing.
+            return_path = message.get("Return-Path", "")
+            from_header = message.get("From", "")
+            sender_email = parseaddr(return_path)[1] if return_path else parseaddr(from_header)[1]
+            from_email = parseaddr(from_header)[1] if from_header else ""
+            sender_domain = self._extract_domain_from_address(sender_email)
+            from_domain = self._extract_domain_from_address(from_email)
+
+            partial_result = self.verify_all(
+                ip=None,
+                sender_domain=sender_domain,
+                sender_email=sender_email,
+                from_domain=from_domain,
+                raw_email=raw_email,
+            )
+            merged_partial = self._merge_live_with_header_fallback(partial_result, header_fallback)
+
+            if any(str(merged_partial.get(k, {}).get("result", "")).lower() != "error" for k in ("spf", "dkim", "dmarc")):
+                logger.info("Verification completed with partial protocol context")
+                return merged_partial
+
             if header_fallback:
                 # Ensure all three keys exist for downstream orchestrator logic.
                 return {
