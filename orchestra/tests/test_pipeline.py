@@ -43,6 +43,23 @@ class FailIfCalledAgentClient:
         raise AssertionError("Agent should not be called for empty inputs")
 
 
+class WebChecksAgentClient:
+    async def analyze(self, _payload: dict):
+        return {
+            "risk_score": 0.1,
+            "label": "safe",
+            "checks": {
+                "url_analysis": [
+                    {
+                        "input_url": "https://bad.example",
+                        "risk_score": 0.91,
+                        "label": "phishing",
+                    }
+                ]
+            },
+        }
+
+
 @pytest.mark.asyncio
 async def test_pipeline_pass(db_session, monkeypatch):
     def fake_parse_eml(_eml_path, attachments_dir):
@@ -195,3 +212,31 @@ async def test_pipeline_skips_file_and_web_without_inputs(db_session, monkeypatc
     assert result.final_status == "PASS"
     assert any("FileAgent skipped - no attachments" in line for line in result.execution_logs)
     assert any("WebAgent skipped - no URLs" in line for line in result.execution_logs)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_halts_on_web_agent_url_checks(db_session, monkeypatch):
+    def fake_parse_eml(_eml_path, _attachments_dir):
+        return SimpleNamespace(
+            subject="msg-6",
+            sent_at="2026-01-01T00:00:00",
+            auth_headers={"from": ["sender@example.com"], "to": ["receiver@example.com"]},
+            plain_parts=["hello"],
+            urls={"https://bad.example"},
+        )
+
+    monkeypatch.setattr("orchestra.pipeline.parse_eml", fake_parse_eml)
+
+    deps = PipelineDependencies(
+        settings=Settings(),
+        email_client=DummyAgentClient({"risk_score": 0.1, "label": "safe"}),
+        file_client=FailIfCalledAgentClient(),
+        web_client=WebChecksAgentClient(),
+        threat_scanner=ThreatIntelScanner(set()),
+        protocol_verifier=DummyProtocolVerifier(auth_ok=True),
+    )
+
+    result = await execute_pipeline("/tmp/fake.eml", db_session, deps)
+
+    assert result.final_status == "DANGER"
+    assert any("WebAgent detected phishing URL" in line for line in result.execution_logs)
