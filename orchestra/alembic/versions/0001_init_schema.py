@@ -21,10 +21,6 @@ def upgrade() -> None:
     verdict_type = sa.Enum("safe", "suspicious", "malicious", name="verdicttype")
     entity_status = sa.Enum("benign", "suspicious", "malicious", "unknown", name="entitystatus")
 
-    email_status.create(op.get_bind(), checkfirst=True)
-    verdict_type.create(op.get_bind(), checkfirst=True)
-    entity_status.create(op.get_bind(), checkfirst=True)
-
     op.create_table(
         "emails",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),

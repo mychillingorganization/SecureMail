@@ -30,15 +30,6 @@ def upgrade() -> None:
     feedback_source_enum = sa.Enum("manual_review", "telemetry", "appeal", name="feedbacksource")
     entity_operation = sa.Enum("add", "remove", "update", name="entityoperation")
 
-    file_analysis_stage.create(op.get_bind(), checkfirst=True)
-    file_type.create(op.get_bind(), checkfirst=True)
-    risk_level.create(op.get_bind(), checkfirst=True)
-    ai_classification.create(op.get_bind(), checkfirst=True)
-    threat_source.create(op.get_bind(), checkfirst=True)
-    model_agent_type.create(op.get_bind(), checkfirst=True)
-    feedback_source_enum.create(op.get_bind(), checkfirst=True)
-    entity_operation.create(op.get_bind(), checkfirst=True)
-
     # Alter emails table: add correlation_id, retry_count, priority
     op.add_column("emails", sa.Column("correlation_id", sa.String(36), nullable=True, unique=False))
     op.add_column("emails", sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"))

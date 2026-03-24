@@ -63,6 +63,8 @@ class ParsedEmail:
 
     subject: str
     sent_at: str
+    sender: str | None
+    receiver: str | None
     auth_headers: dict[str, list[str]]
     plain_parts: list[str]
     html_parts: list[str]
@@ -469,6 +471,11 @@ def parse_eml(eml_path: Path, attachments_dir: Path) -> ParsedEmail:
             sent_at = date_header
 
     auth_headers = collect_auth_headers(message)
+    
+    # Extract sender and receiver from standard email headers
+    sender = decode_mime_header(message.get("From", "")) or None
+    receiver = decode_mime_header(message.get("To", "")) or None
+    
     plain_parts: list[str] = []
     html_parts: list[str] = []
     urls: set[str] = set()
@@ -506,6 +513,8 @@ def parse_eml(eml_path: Path, attachments_dir: Path) -> ParsedEmail:
     return ParsedEmail(
         subject=subject,
         sent_at=sent_at,
+        sender=sender,
+        receiver=receiver,
         auth_headers=auth_headers,
         plain_parts=plain_parts,
         html_parts=html_parts,

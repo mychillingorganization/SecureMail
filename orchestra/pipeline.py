@@ -253,8 +253,8 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
 
         email_row = Email(
             message_id=parsed.subject,
-            sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
-            receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
+            sender=parsed.sender,
+            receiver=parsed.receiver,
             status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
             total_risk_score=float(issue_count),
             final_verdict=_verdict_type_from_status(final_status),
