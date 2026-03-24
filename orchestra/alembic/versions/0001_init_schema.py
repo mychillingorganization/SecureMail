@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("email_id", sa.Integer(), sa.ForeignKey("emails.id", ondelete="CASCADE"), nullable=False),
         sa.Column("agent_name", sa.String(length=100), nullable=False),
-        sa.Column("reasoning_trace", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("reasoning_trace", sa.JSON(), nullable=False),
         sa.Column("cryptographic_hash", sa.String(length=128), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
