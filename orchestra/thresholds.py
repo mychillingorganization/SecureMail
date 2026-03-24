@@ -50,13 +50,13 @@ ISSUE_COUNT_DANGER = 2      # 2+ issues → DANGER
 # ============================================================================
 
 # Maximum retry attempts when calling AI Agent
-AI_AGENT_RETRY_ATTEMPTS = 1
+AI_AGENT_RETRY_ATTEMPTS = 2
 
 # Backoff strategy for AI Agent retries (seconds)
 AI_AGENT_RETRY_BACKOFF_SECONDS = 0.5
 
 # Request timeout for AI Agent calls (seconds) — longer than other agents
-AI_AGENT_TIMEOUT_SECONDS = 60.0
+AI_AGENT_TIMEOUT_SECONDS = 180.0
 
 # LLM escalation policy: should_escalate + confidence threshold
 LLM_ESCALATION_CONFIDENCE_THRESHOLD_PERCENT = 70
