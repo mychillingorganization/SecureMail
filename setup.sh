@@ -5,10 +5,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 echo "[1/5] Creating required directories..."
-mkdir -p model_training_pipeline/{file_agent,email_agent,web_agent,data}
+mkdir -p model_training_pipeline/{file_module,email_agent,web_module,data}
 mkdir -p temporary/{root-legacy,docs,scripts}
 mkdir -p src/db/migrations/versions
-mkdir -p FILE_AGENT/file_agent/models email_agent/models web_agent/models
+mkdir -p file_module/file_module/models email_agent/models web_module/models
 
 echo "[2/5] Creating virtual environment..."
 if [[ ! -d .venv ]]; then

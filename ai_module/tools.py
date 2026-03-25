@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from ai_agent.schemas import AnalyzeRequest
-from ai_agent import thresholds
+from ai_module.schemas import AnalyzeRequest
+from ai_module import thresholds
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -46,13 +46,13 @@ def tool_file_signal(payload: AnalyzeRequest, _args: dict[str, Any]) -> dict[str
                 idx = int(item)
             except (TypeError, ValueError):
                 continue
-            if 0 <= idx < len(payload.file_agent):
+            if 0 <= idx < len(payload.file_module):
                 normalized.add(idx)
         requested_indices = normalized
 
     suspicious = []
     scanned_indices: list[int] = []
-    for idx, item in enumerate(payload.file_agent):
+    for idx, item in enumerate(payload.file_module):
         if requested_indices is not None and idx not in requested_indices:
             continue
 
@@ -68,7 +68,7 @@ def tool_file_signal(payload: AnalyzeRequest, _args: dict[str, Any]) -> dict[str
                 "risk_level": level,
             })
     return {
-        "attachment_count": len(payload.file_agent),
+        "attachment_count": len(payload.file_module),
         "scanned_attachment_count": len(scanned_indices),
         "scanned_indices": sorted(scanned_indices),
         "suspicious_count": len(suspicious),
@@ -83,8 +83,8 @@ def tool_web_signal(payload: AnalyzeRequest, _args: dict[str, Any]) -> dict[str,
         requested_set = {str(item).strip() for item in requested_urls if str(item).strip()}
         scoped_urls = [url for url in payload.urls if url in requested_set]
 
-    risk = _safe_float(payload.web_agent.get("risk_score", 0.0))
-    label = str(payload.web_agent.get("label", "unknown")).lower()
+    risk = _safe_float(payload.web_module.get("risk_score", 0.0))
+    label = str(payload.web_module.get("label", "unknown")).lower()
     return {
         "risk_score": risk,
         "label": label,
@@ -126,10 +126,10 @@ def tool_risk_rollup(payload: AnalyzeRequest, _args: dict[str, Any]) -> dict[str
         risk += thresholds.AUTH_PENALTY_DMARC_FAIL
 
     email_risk = _safe_float(payload.email_agent.get("risk_score", 0.0))
-    web_risk = _safe_float(payload.web_agent.get("risk_score", 0.0))
+    web_risk = _safe_float(payload.web_module.get("risk_score", 0.0))
     risk += email_risk + web_risk
 
-    for item in payload.file_agent:
+    for item in payload.file_module:
         risk += _safe_float(item.get("risk_score", 0.0))
 
     if payload.provisional_final_status == "DANGER":

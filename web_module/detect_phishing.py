@@ -9,10 +9,10 @@ import pandas as pd
 from colorama import init, Fore, Style
 
 try:
-    from web_agent.model import MODEL_PATH, PhishingModel
-    from web_agent.lists import is_blacklisted, is_whitelisted, load_lists
-    from web_agent.feature_extractor import extract_html_features, extract_url_features, fetch_url_context
-except ImportError:  # Fallback for running from inside the web_agent directory.
+    from web_module.model import MODEL_PATH, PhishingModel
+    from web_module.lists import is_blacklisted, is_whitelisted, load_lists
+    from web_module.feature_extractor import extract_html_features, extract_url_features, fetch_url_context
+except ImportError:  # Fallback for running from inside the web_module directory.
     from model import PhishingModel, MODEL_PATH
     from lists import load_lists, is_blacklisted, is_whitelisted
     from feature_extractor import extract_url_features, extract_html_features, fetch_url_context
@@ -71,7 +71,7 @@ async def predict_url(model: PhishingModel, url: str, use_html_mode: bool = Fals
         html_features = extract_html_features(html_content)
     else:
         try:
-            from web_agent.feature_extractor import HTML_DEFAULT_FEATURES
+            from web_module.feature_extractor import HTML_DEFAULT_FEATURES
         except ImportError:
             from feature_extractor import HTML_DEFAULT_FEATURES
         html_features = dict(HTML_DEFAULT_FEATURES)

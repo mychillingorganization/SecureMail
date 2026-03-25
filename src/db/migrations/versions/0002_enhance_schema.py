@@ -25,8 +25,8 @@ def upgrade() -> None:
     file_type = sa.Enum("pe", "ole", "pdf", "archive", "other", name="filetype")
     risk_level = sa.Enum("low", "medium", "high", name="risklevel")
     ai_classification = sa.Enum("safe", "suspicious", "dangerous", name="aiclassification")
-    threat_source = sa.Enum("web_agent", "threat_feed", "manual", name="threatsource")
-    model_agent_type = sa.Enum("email_agent", "file_agent", "web_agent", "ai_agent", name="modelagenttype")
+    threat_source = sa.Enum("web_module", "threat_feed", "manual", name="threatsource")
+    model_agent_type = sa.Enum("email_agent", "file_module", "web_module", "ai_module", name="modelagenttype")
     feedback_source_enum = sa.Enum("manual_review", "telemetry", "appeal", name="feedbacksource")
     entity_operation = sa.Enum("add", "remove", "update", name="entityoperation")
 

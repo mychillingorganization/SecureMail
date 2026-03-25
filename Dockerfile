@@ -14,10 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Application source
 COPY orchestra ./orchestra
 COPY src ./src
-COPY ai_agent ./ai_agent
+COPY ai_module ./ai_module
 COPY email_agent ./email_agent
-COPY web_agent ./web_agent
-COPY FILE_AGENT/file_agent ./FILE_AGENT/file_agent
+COPY web_module ./web_module
+COPY file_module/file_module ./file_module/file_module
 COPY scripts ./scripts
 
 EXPOSE 8080

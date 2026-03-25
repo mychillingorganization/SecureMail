@@ -62,16 +62,16 @@ class AiClassification(str, Enum):
 
 
 class ThreatSource(str, Enum):
-    web_agent = "web_agent"
+    web_module = "web_module"
     threat_feed = "threat_feed"
     manual = "manual"
 
 
 class ModelAgentType(str, Enum):
     email_agent = "email_agent"
-    file_agent = "file_agent"
-    web_agent = "web_agent"
-    ai_agent = "ai_agent"
+    file_module = "file_module"
+    web_module = "web_module"
+    ai_module = "ai_module"
 
 
 class FeedbackSource(str, Enum):
@@ -209,7 +209,7 @@ class AgentResponse(Base):
     response_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     email_id: Mapped[int] = mapped_column(ForeignKey("emails.id", ondelete="CASCADE"), index=True)
     correlation_id: Mapped[str] = mapped_column(String(36), index=True)
-    agent_type: Mapped[str] = mapped_column(String(50), index=True)  # email_agent, file_agent, web_agent, ai_agent
+    agent_type: Mapped[str] = mapped_column(String(50), index=True)  # email_agent, file_module, web_module, ai_module
     response_payload: Mapped[dict] = mapped_column(JSON)
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -69,7 +69,7 @@ Implemented 8 new PostgreSQL-compatible enums:
 - `FileType` - (pe, ole, pdf, archive, other)
 - `RiskLevel` - (low, medium, high)
 - `AiClassification` - (safe, suspicious, dangerous)
-- `ThreatSource` - (web_agent, threat_feed, manual)
+- `ThreatSource` - (web_module, threat_feed, manual)
 - `ModelAgentType` - Agent types for model tracking
 - `FeedbackSource` - (manual_review, telemetry, appeal)
 - `EntityOperation` - (add, remove, update)

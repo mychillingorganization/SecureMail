@@ -1,5 +1,5 @@
 """
-file_agent/xgboost_classifier.py
+file_module/xgboost_classifier.py
 Inference module — trích xuất features từ AnalysisResult và dự đoán risk level.
 
 Sử dụng:
@@ -47,7 +47,7 @@ def _get_model_path_for_filetype(file_type: FileType, filename: Optional[str] = 
     if configured_dir:
         model_root = Path(configured_dir).resolve()
     else:
-        # New default: keep inference artifacts inside FILE_AGENT/file_agent/models.
+        # New default: keep inference artifacts inside file_module/file_module/models.
         model_root = Path(__file__).parent / "models"
         # Backward compatibility for older layouts.
         if not model_root.exists():

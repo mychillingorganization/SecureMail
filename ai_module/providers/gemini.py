@@ -8,10 +8,10 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from ai_agent.config import AIAgentSettings
-from ai_agent.schemas import AnalyzeRequest, AnalyzeResponse
-from ai_agent.tools import TOOLS
-from ai_agent import thresholds
+from ai_module.config import AIAgentSettings
+from ai_module.schemas import AnalyzeRequest, AnalyzeResponse
+from ai_module.tools import TOOLS
+from ai_module import thresholds
 
 
 class GeminiProvider:
@@ -40,7 +40,7 @@ class GeminiProvider:
             self._last_primary_call_ts = updated_now
 
     def _has_file_targets(self, payload: AnalyzeRequest) -> bool:
-        return bool(payload.file_agent)
+        return bool(payload.file_module)
 
     def _has_url_targets(self, payload: AnalyzeRequest) -> bool:
         return bool(payload.urls)
@@ -92,7 +92,7 @@ class GeminiProvider:
                 if not isinstance(raw, list):
                     return False, "file_indices must be a list of integers", sanitized
                 validated: list[int] = []
-                max_idx = len(payload.file_agent) - 1
+                max_idx = len(payload.file_module) - 1
                 for item in raw:
                     try:
                         idx = int(item)

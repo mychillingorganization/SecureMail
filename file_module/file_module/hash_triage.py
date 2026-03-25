@@ -43,7 +43,7 @@ def compute_hashes(data: bytes) -> dict[str, str]:
 # ─────────────────────────────────────────────
 
 def _cache_key(sha256: str) -> str:
-    return f"file_agent:hash:{sha256}"
+    return f"file_module:hash:{sha256}"
 
 
 async def _redis_get(redis: aioredis.Redis, sha256: str) -> Optional[HashTriageResult]:

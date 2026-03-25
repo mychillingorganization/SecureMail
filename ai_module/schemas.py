@@ -8,8 +8,8 @@ class AnalyzeRequest(BaseModel):
     sender: str | None = None
     auth: dict[str, Any] = Field(default_factory=dict)
     email_agent: dict[str, Any] = Field(default_factory=dict)
-    file_agent: list[dict[str, Any]] = Field(default_factory=list)
-    web_agent: dict[str, Any] = Field(default_factory=dict)
+    file_module: list[dict[str, Any]] = Field(default_factory=list)
+    web_module: dict[str, Any] = Field(default_factory=dict)
     issue_count: int = 0
     provisional_final_status: str = "PASS"
     termination_reason: str | None = None

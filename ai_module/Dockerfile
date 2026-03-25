@@ -9,4 +9,4 @@ COPY . /app
 
 EXPOSE 8003
 
-CMD ["python", "-m", "uvicorn", "ai_agent.main:app", "--host", "0.0.0.0", "--port", "8003"]
+CMD ["python", "-m", "uvicorn", "ai_module.main:app", "--host", "0.0.0.0", "--port", "8003"]

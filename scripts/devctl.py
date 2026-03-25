@@ -26,16 +26,16 @@ SERVICES = {
     "file": {
         "health": "http://127.0.0.1:8001/health",
         "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
-        "cwd": ROOT / "FILE_AGENT" / "file_agent",
+        "cwd": ROOT / "file_module" / "file_module",
     },
     "web": {
         "health": "http://127.0.0.1:8002/health",
         "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
-        "cwd": ROOT / "web_agent",
+        "cwd": ROOT / "web_module",
     },
     "ai": {
         "health": "http://127.0.0.1:8003/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "ai_agent.main:app", "--host", "127.0.0.1", "--port", "8003", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "ai_module.main:app", "--host", "127.0.0.1", "--port", "8003", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "orchestrator": {
