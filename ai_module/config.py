@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from ai_agent import thresholds
+from ai_module import thresholds
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

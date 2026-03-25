@@ -1,6 +1,6 @@
-from ai_agent.config import AIAgentSettings
-from ai_agent.providers.base import AIProvider
-from ai_agent.providers.gemini import GeminiProvider
+from ai_module.config import AIAgentSettings
+from ai_module.providers.base import AIProvider
+from ai_module.providers.gemini import GeminiProvider
 
 
 def get_provider(settings: AIAgentSettings) -> AIProvider:

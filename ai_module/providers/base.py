@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ai_agent.schemas import AnalyzeRequest, AnalyzeResponse
+from ai_module.schemas import AnalyzeRequest, AnalyzeResponse
 
 
 class AIProvider(Protocol):

@@ -221,8 +221,8 @@ class EnhancedRedisClient:
         session_data example:
         {
             "email_id": 123,
-            "stages": ["protocol_check", "email_agent", "file_agent", "web_agent"],
-            "current_stage": "file_agent",
+            "stages": ["protocol_check", "email_agent", "file_module", "web_module"],
+            "current_stage": "file_module",
             "agent_responses": {...},
             "started_at": "2026-03-24T10:10:10Z"
         }

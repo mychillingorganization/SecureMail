@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 
-from ai_agent.config import get_ai_agent_settings
-from ai_agent.providers.factory import get_provider
-from ai_agent.schemas import AnalyzeRequest, AnalyzeResponse
+from ai_module.config import get_ai_agent_settings
+from ai_module.providers.factory import get_provider
+from ai_module.schemas import AnalyzeRequest, AnalyzeResponse
 
 app = FastAPI(title="SecureMail AI Agent", version="0.1.0")
 

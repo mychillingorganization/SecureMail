@@ -67,11 +67,11 @@ docker run -d --name redis -p 6379:6379 redis:latest
 
 ```bash
 # Linux
-cd file_agent && source ../venv/bin/activate
+cd file_module && source ../venv/bin/activate
 python -m uvicorn main:app --reload
 
 # Windows
-cd file_agent && ..\venv\Scripts\python.exe -m uvicorn main:app --reload
+cd file_module && ..\venv\Scripts\python.exe -m uvicorn main:app --reload
 ```
 
 Access Swagger UI: **http://localhost:8000/docs**
@@ -97,7 +97,7 @@ python dataset/Training_Model.py
 ## 📊 System Architecture
 
 ```
-file_agent/           API & analysis
+file_module/           API & analysis
   ├── main.py        FastAPI server
   ├── hash_triage.py IOC Database + ClamAV
   ├── static_analyzer.py File analysis
@@ -145,7 +145,7 @@ Sandbox/             Docker containers
 
 ## 🔧 Configuration
 
-Edit `file_agent/config.py`:
+Edit `file_module/config.py`:
 - Redis connection
 - PostgreSQL for IOC database
 - Sandbox timeout (default: 90s)

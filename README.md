@@ -38,12 +38,12 @@ SecureMail/
 │       ├── svm_model.pkl
 │       ├── tfidf.pkl
 │       └── scaler.pkl
-├── web_agent/
+├── web_module/
 │   ├── main.py
 │   └── models/
 │       └── xgboost_phishing_model.json
 ├── FILE_AGENT/
-│   └── file_agent/
+│   └── file_module/
 │       ├── main.py
 │       └── models/
 │           ├── model_word.pkl
@@ -53,9 +53,9 @@ SecureMail/
 │           └── model_image.pkl
 ├── model_training_pipeline/
 │   ├── README.md
-│   ├── file_agent/
+│   ├── file_module/
 │   ├── email_agent/
-│   ├── web_agent/
+│   ├── web_module/
 │   └── data/
 └── temporary/
     ├── root-legacy/
@@ -67,8 +67,8 @@ SecureMail/
 
 Each agent stores its own inference artifacts:
 - `email_agent/models/`
-- `web_agent/models/`
-- `FILE_AGENT/file_agent/models/`
+- `web_module/models/`
+- `FILE_AGENT/file_module/models/`
 
 Training/evaluation code and datasets live only in `model_training_pipeline/`.
 
