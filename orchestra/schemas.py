@@ -21,6 +21,44 @@ class ScanResponse(BaseModel):
     ai_cot_steps: list[str] = Field(default_factory=list)
 
 
+class ScanHistoryCreate(BaseModel):
+    """Model for creating a new scan history entry."""
+
+    scan_mode: str  # "rule" or "llm"
+    file_name: str
+    final_status: str
+    issue_count: int
+    duration_ms: int
+    termination_reason: str | None = None
+    ai_classify: str | None = None
+    ai_reason: str | None = None
+    ai_summary: str | None = None
+    ai_provider: str | None = None
+    ai_confidence_percent: int | None = None
+    execution_logs: list[str] = Field(default_factory=list)
+    ai_cot_steps: list[str] = Field(default_factory=list)
+
+
+class ScanHistoryResponse(BaseModel):
+    """Model for scan history response."""
+
+    id: str
+    timestamp: str
+    scan_mode: str
+    file_name: str
+    final_status: str
+    issue_count: int
+    duration_ms: int
+    termination_reason: str | None = None
+    ai_classify: str | None = None
+    ai_reason: str | None = None
+    ai_summary: str | None = None
+    ai_provider: str | None = None
+    ai_confidence_percent: int | None = None
+    execution_logs: list[str]
+    ai_cot_steps: list[str]
+
+
 class AuditEntry(BaseModel):
     agent_name: str
     reasoning_trace: dict[str, Any]

@@ -14,6 +14,8 @@ class AIAgentSettings(BaseSettings):
     autonomous_retry_backoff_seconds: float = thresholds.RETRY_BACKOFF_SECONDS
     autonomous_temperature: float = thresholds.LLM_TEMPERATURE
     autonomous_max_tool_steps: int = thresholds.MAX_TOOL_STEPS_PER_ATTEMPT
+    transient_max_retries: int = thresholds.LLM_TRANSIENT_MAX_RETRIES
+    transient_retry_base_seconds: float = thresholds.LLM_TRANSIENT_RETRY_BASE_SECONDS
 
     google_ai_studio_api_key: str | None = None
     google_ai_studio_model: str = "gemini-3.1-flash-lite-preview"

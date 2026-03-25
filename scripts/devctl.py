@@ -121,6 +121,7 @@ def cmd_down() -> int:
 
 def cmd_test7(llm: bool, output: str | None) -> int:
     endpoint = "/api/v1/scan-llm" if llm else "/api/v1/scan"
+    timeout_seconds = 360 if llm else 120
     payload = {
         "email_path": str(ROOT / "test7.eml"),
         "user_accepts_danger": False,
@@ -132,7 +133,7 @@ def cmd_test7(llm: bool, output: str | None) -> int:
         method="POST",
     )
 
-    with urlopen(req, timeout=120) as resp:
+    with urlopen(req, timeout=timeout_seconds) as resp:
         body = resp.read().decode("utf-8")
         data = json.loads(body)
 

@@ -70,7 +70,11 @@ RETRY_BACKOFF_SECONDS = 1.5
 LLM_TEMPERATURE = 0.2
 
 # Request timeout for LLM API calls (seconds)
-LLM_REQUEST_TIMEOUT_SECONDS = 20.0
+LLM_REQUEST_TIMEOUT_SECONDS = 60.0
+
+# Transient API retry policy for upstream 429/5xx and network stalls
+LLM_TRANSIENT_MAX_RETRIES = 2
+LLM_TRANSIENT_RETRY_BASE_SECONDS = 1.0
 
 # ============================================================================
 # Multi-Tool Policy (enforced to avoid single-tool bias)

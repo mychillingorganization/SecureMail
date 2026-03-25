@@ -21,10 +21,6 @@ def upgrade() -> None:
     verdict_type = sa.Enum("safe", "suspicious", "malicious", name="verdicttype")
     entity_status = sa.Enum("benign", "suspicious", "malicious", "unknown", name="entitystatus")
 
-    email_status.create(op.get_bind(), checkfirst=True)
-    verdict_type.create(op.get_bind(), checkfirst=True)
-    entity_status.create(op.get_bind(), checkfirst=True)
-
     op.create_table(
         "emails",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
@@ -42,7 +38,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("email_id", sa.Integer(), sa.ForeignKey("emails.id", ondelete="CASCADE"), nullable=False),
         sa.Column("agent_name", sa.String(length=100), nullable=False),
-        sa.Column("reasoning_trace", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("reasoning_trace", sa.JSON(), nullable=False),
         sa.Column("cryptographic_hash", sa.String(length=128), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )

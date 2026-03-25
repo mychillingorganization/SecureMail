@@ -8,7 +8,6 @@ remote HTTP fetches never block at import time or during server startup.
 import asyncio
 import logging
 import os
-from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -17,10 +16,8 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-_MODULE_DIR = Path(__file__).parent.resolve()
-_LISTS_DIR = _MODULE_DIR / "data" / "lists"
-WHITELIST_FILE = os.getenv("WHITELIST_FILE", str(_LISTS_DIR / "whitelist.txt"))
-BLACKLIST_FILE = os.getenv("BLACKLIST_FILE", str(_LISTS_DIR / "blacklist.txt"))
+WHITELIST_FILE = os.getenv("WHITELIST_FILE", "whitelist.txt")
+BLACKLIST_FILE = os.getenv("BLACKLIST_FILE", "blacklist.txt")
 BLACKLIST_FETCH_TIMEOUT = float(os.getenv("BLACKLIST_FETCH_TIMEOUT", "8"))
 BLACKLIST_SOURCE_URLS: list[str] = [
     "https://openphish.com/feed.txt",

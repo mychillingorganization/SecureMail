@@ -63,7 +63,13 @@ async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus)
         db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
         session.add(db_obj)
     else:
-        db_obj.status = status
+        # Preserve customer-managed blacklist/whitelist decisions.
+        if getattr(db_obj, "is_blacklisted", False):
+            db_obj.status = EntityStatus.malicious
+        elif getattr(db_obj, "is_whitelisted", False):
+            db_obj.status = EntityStatus.benign
+        else:
+            db_obj.status = status
     return url_hash
 
 
@@ -253,8 +259,8 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
 
         email_row = Email(
             message_id=parsed.subject,
-            sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
-            receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
+            sender=parsed.sender,
+            receiver=parsed.receiver,
             status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
             total_risk_score=float(issue_count),
             final_verdict=_verdict_type_from_status(final_status),

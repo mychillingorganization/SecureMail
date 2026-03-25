@@ -1,0 +1,114 @@
+# Legitimate Domain Whitelist
+# One domain per line, no quotes or commas
+# This list is used to prevent false positives for well-known legitimate sites
+
+# Search Engines
+google.com
+bing.com
+yahoo.com
+duckduckgo.com
+baidu.com
+
+# Social Media
+facebook.com
+twitter.com
+instagram.com
+linkedin.com
+reddit.com
+pinterest.com
+tumblr.com
+snapchat.com
+tiktok.com
+youtube.com
+
+# Tech Companies
+microsoft.com
+apple.com
+amazon.com
+netflix.com
+adobe.com
+oracle.com
+salesforce.com
+ibm.com
+intel.com
+cisco.com
+
+# Development & Tech
+github.com
+gitlab.com
+stackoverflow.com
+stackexchange.com
+sourceforge.net
+bitbucket.org
+npmjs.com
+pypi.org
+
+# News & Media
+cnn.com
+bbc.co.uk
+bbc.com
+nytimes.com
+theguardian.com
+reuters.com
+wsj.com
+forbes.com
+bloomberg.com
+techcrunch.com
+
+# E-commerce
+ebay.com
+walmart.com
+target.com
+bestbuy.com
+etsy.com
+aliexpress.com
+alibaba.com
+shopify.com
+
+# Education
+wikipedia.org
+coursera.org
+udemy.com
+khanacademy.org
+edx.org
+mit.edu
+stanford.edu
+harvard.edu
+
+# Government & Organizations
+gov.uk
+nih.gov
+cdc.gov
+who.int
+un.org
+
+# Cloud & Infrastructure
+cloudflare.com
+aws.amazon.com
+cloud.google.com
+azure.microsoft.com
+
+# Financial
+paypal.com
+chase.com
+bankofamerica.com
+wellsfargo.com
+
+# Communication
+zoom.us
+slack.com
+discord.com
+teams.microsoft.com
+skype.com
+whatsapp.com
+telegram.org
+
+# Other Popular Sites
+dropbox.com
+spotify.com
+twitch.tv
+wordpress.com
+medium.com
+quora.com
+imdb.com
+yelp.com

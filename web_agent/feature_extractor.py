@@ -103,7 +103,7 @@ def extract_url_features(url: str) -> dict[str, int | float]:
 
     All values are numeric (int or float) and safe to feed directly to XGBoost.
     
-    **Feature Groups** (see docs/FEATURES.md for full documentation):
+    **Feature Groups** (see FEATURES.md for full documentation):
     - **Identity/Trust Signals** (7 features): Have_IP, Have_At, IsHTTPS, https_Domain, Prefix_Suffix, TinyURL, SuspiciousWords
       * Phishing Signal: Legitimate domains rarely use raw IPs, multiple @ symbols, or URL shorteners.
     - **Structural Complexity** (13 features): DomainPartCount, SubdomainCount, URL_Depth, URL_Length, path/query/domain lengths
@@ -340,7 +340,7 @@ def extract_html_features(html_content: str) -> dict[str, int | float]:
 
     Returns ``HTML_DEFAULT_FEATURES`` (all zeros) on parse failure or empty input.
     
-    **Feature Groups** (see docs/FEATURES.md for full documentation):
+    **Feature Groups** (see FEATURES.md for full documentation):
     - **Form Structure** (6 features): NoOfForms, NoOfInputs, NoOfPasswordFields, NoOfEmailFields, NoOfHiddenFields, NoOfExternalFormActions
       * Phishing Signal: Multiple forms, password fields, or hidden fields indicate credential theft attempts.
     - **Link Structure** (5 features): NoOfLinks, NoOfExternalLinks, NoOfInternalLinks, NoOfNullLinks, ExternalLinkRatio

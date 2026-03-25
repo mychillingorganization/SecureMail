@@ -10,11 +10,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy source files
 COPY web_agent/*.py ./
-COPY web_agent/model_artifacts/xgboost_phishing_model.json ./model_artifacts/
+COPY web_agent/xgboost_phishing_model.json ./
 
 # Optional list files (mount or bake in)
-# COPY web_agent/data/lists/whitelist.txt ./data/lists/whitelist.txt
-# COPY web_agent/data/lists/blacklist.txt ./data/lists/blacklist.txt
+# COPY whitelist.txt blacklist.txt ./
 
 EXPOSE 8002
 

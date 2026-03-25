@@ -118,12 +118,6 @@ Analyzes all URLs found within the email body.
 - **Feature Extraction + Inference:** Combines static URL features and parsed HTML features for XGBoost risk scoring.
 - **Threat List Operations:** Supports startup loading, periodic background refresh, and manual refresh endpoints.
 
-Model artifact paths are centralized in `web_agent/config.py` and can be overridden with:
-- `MODEL_ARTIFACTS_DIR`
-- `MODEL_PATH`
-- `MODEL_DATASET_PATH`
-- `MODEL_NOTEBOOK_PATH`
-
 ### Orchestrator & Pipeline
 The brain of the system.
 - **ReAct Logic:** "Think" -> "Act" -> "Observe" loop to determine if an email requires further deep-dive analysis.

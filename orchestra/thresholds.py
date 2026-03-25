@@ -50,13 +50,13 @@ ISSUE_COUNT_DANGER = 2      # 2+ issues → DANGER
 # ============================================================================
 
 # Maximum retry attempts when calling AI Agent
-AI_AGENT_RETRY_ATTEMPTS = 1
+AI_AGENT_RETRY_ATTEMPTS = 2
 
 # Backoff strategy for AI Agent retries (seconds)
 AI_AGENT_RETRY_BACKOFF_SECONDS = 0.5
 
 # Request timeout for AI Agent calls (seconds) — longer than other agents
-AI_AGENT_TIMEOUT_SECONDS = 60.0
+AI_AGENT_TIMEOUT_SECONDS = 180.0
 
 # LLM escalation policy: should_escalate + confidence threshold
 LLM_ESCALATION_CONFIDENCE_THRESHOLD_PERCENT = 70
@@ -91,7 +91,8 @@ DEFAULT_AGENT_TIMEOUT_SECONDS = 20.0
 # ============================================================================
 
 # Allowed origins for CORS (comma-separated, set via env)
-CORS_ALLOW_ORIGINS = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080"
+# Use * for all origins in development
+CORS_ALLOW_ORIGINS = "*"
 
 # ============================================================================
 # Feature Flags (Future use)

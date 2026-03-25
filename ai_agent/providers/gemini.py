@@ -492,6 +492,22 @@ class GeminiProvider:
     def _extract_model_text(self, body: dict[str, Any]) -> str:
         return str(body["candidates"][0]["content"]["parts"][0]["text"])
 
+    def _is_retryable_status(self, status_code: int) -> bool:
+        return status_code in {408, 429, 500, 502, 503, 504}
+
+    async def _sleep_for_retry(self, attempt: int, retry_after_header: str | None = None) -> None:
+        if retry_after_header:
+            try:
+                retry_after_seconds = float(retry_after_header)
+                if retry_after_seconds > 0:
+                    await asyncio.sleep(retry_after_seconds)
+                    return
+            except ValueError:
+                pass
+
+        base = max(0.1, float(self._settings.transient_retry_base_seconds))
+        await asyncio.sleep(base * (2 ** (attempt - 1)))
+
     async def _request_json(self, client: httpx.AsyncClient, url: str, prompt: str) -> dict[str, Any]:
         req_payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -500,19 +516,37 @@ class GeminiProvider:
                 "responseMimeType": "application/json",
             },
         }
-        response = await client.post(url, json=req_payload)
-        response.raise_for_status()
-        body = response.json()
-        text = self._extract_model_text(body)
-        parsed = json.loads(text)
-        if isinstance(parsed, list):
-            first_obj = next((item for item in parsed if isinstance(item, dict)), None)
-            if first_obj is None:
-                raise ValueError("model output list does not contain object item")
-            parsed = first_obj
-        if not isinstance(parsed, dict):
-            raise ValueError(f"model output must be object, got {type(parsed).__name__}")
-        return parsed
+        max_retries = max(0, int(self._settings.transient_max_retries))
+
+        for attempt in range(1, max_retries + 2):
+            try:
+                response = await client.post(url, json=req_payload)
+                if self._is_retryable_status(response.status_code) and attempt <= max_retries:
+                    await self._sleep_for_retry(attempt, response.headers.get("Retry-After"))
+                    continue
+
+                response.raise_for_status()
+                body = response.json()
+                text = self._extract_model_text(body)
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    first_obj = next((item for item in parsed if isinstance(item, dict)), None)
+                    if first_obj is None:
+                        raise ValueError("model output list does not contain object item")
+                    parsed = first_obj
+                if not isinstance(parsed, dict):
+                    raise ValueError(f"model output must be object, got {type(parsed).__name__}")
+                return parsed
+            except httpx.TimeoutException:
+                if attempt <= max_retries:
+                    await self._sleep_for_retry(attempt)
+                    continue
+                raise
+            except httpx.TransportError:
+                if attempt <= max_retries:
+                    await self._sleep_for_retry(attempt)
+                    continue
+                raise
 
     async def analyze(self, payload: AnalyzeRequest) -> AnalyzeResponse:
         api_key = self._settings.google_ai_studio_api_key
@@ -547,7 +581,15 @@ class GeminiProvider:
         last_error: str | None = None
         tool_history: list[dict[str, Any]] = []
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout_seconds) as client:
+        request_timeout = max(5.0, float(self._settings.request_timeout_seconds))
+        timeout = httpx.Timeout(
+            connect=min(10.0, request_timeout),
+            read=request_timeout,
+            write=min(30.0, request_timeout),
+            pool=min(30.0, request_timeout),
+        )
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(1, max_attempts + 1):
                 try:
                     if tool_history:

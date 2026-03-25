@@ -99,7 +99,13 @@ async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus)
 		db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
 		session.add(db_obj)
 	else:
-		db_obj.status = status
+		# Preserve customer-managed blacklist/whitelist decisions.
+		if getattr(db_obj, "is_blacklisted", False):
+			db_obj.status = EntityStatus.malicious
+		elif getattr(db_obj, "is_whitelisted", False):
+			db_obj.status = EntityStatus.benign
+		else:
+			db_obj.status = status
 	return url_hash
 
 
@@ -384,8 +390,8 @@ async def execute_pipeline_deepdive(
 
 		email_row = Email(
 			message_id=parsed.subject,
-			sender=parsed.auth_headers.get("from", [None])[0] if parsed.auth_headers.get("from") else None,
-			receiver=parsed.auth_headers.get("to", [None])[0] if parsed.auth_headers.get("to") else None,
+			sender=parsed.sender,
+			receiver=parsed.receiver,
 			status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
 			total_risk_score=float(issue_count),
 			final_verdict=_verdict_type_from_status(final_status),
@@ -407,16 +413,32 @@ async def execute_pipeline_deepdive(
 			)
 		)
 
+		# Add URLs first, then flush so they exist in DB before creating relationships
 		for url in sorted(parsed.urls):
 			default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
 			url_hash = await _upsert_url(session, url, default_status)
+		
+		# Flush all URLs to database
+		await session.flush()
+		
+		# Now add URL relationships
+		for url in sorted(parsed.urls):
+			url_hash = _hash_url(url)
 			session.add(EmailUrl(email_id=email_row.id, url_hash=url_hash))
 
+		# Add files next
 		for file_hash, file_path in attachment_hashes:
 			default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
 			row_hash = await _upsert_file(session, file_hash, file_path, default_status)
-			session.add(EmailFile(email_id=email_row.id, file_hash=row_hash))
+		
+		# Flush all files to database
+		await session.flush()
+		
+		# Now add file relationships
+		for file_hash, file_path in attachment_hashes:
+			session.add(EmailFile(email_id=email_row.id, file_hash=file_hash))
 
+		# Final commit
 		await session.commit()
 
 		ai_classify = llm_result.get("classify") if isinstance(llm_result, dict) else None

@@ -10,7 +10,15 @@ from orchestra.models import Base
 
 config = context.config
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# Convert async database URL to synchronous for migrations
+db_url = settings.database_url
+if "+asyncpg" in db_url:
+    db_url = db_url.replace("+asyncpg", "")
+if "+aiosqlite" in db_url:
+    db_url = db_url.replace("+aiosqlite", "")
+
+config.set_main_option("sqlalchemy.url", db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

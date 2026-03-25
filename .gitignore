@@ -173,11 +173,10 @@ FILE_AGENT/dataset/model_word.pkl
 FILE_AGENT/dataset/training_data_collected.csv
 # Local-only test files (unrelated to committed suite)
 pytest.ini
-web_agent/tests/test_integration.py
-web_agent/tests/test_refresh_lists.py
-web_agent/docs/FEATURES.md
-web_agent/docs/REVIEW.md
-web_agent/outputs/detection_results.csv
+web_agent/test_integration.py
+web_agent/test_refresh_lists.py
+web_agent/FEATURES.md
+web_agent/REVIEW.md
 web_agent/config.py
 
 .vscode/
@@ -202,3 +201,5 @@ test5.eml:OECustomProperty
 test6.eml:OECustomProperty
 test7.eml:OECustomProperty
 batch_test_eml_scan_llm_report.json
+/UI-UX/node_modules
+file_black_list.csv
