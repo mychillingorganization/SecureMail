@@ -1,0 +1,25 @@
+# VCS and IDE
+.git
+.github
+.vscode
+
+# Python cache and local env
+**/__pycache__/
+**/*.pyc
+.venv
+.runtime
+.vite
+
+# Frontend/node artifacts
+UI-UX/node_modules
+UI-UX/dist
+
+# Soft-archived and training-only assets
+temporary/
+model_training_pipeline/
+
+# Keep inference models inside agent folders (explicit)
+!web_agent/models/
+!web_agent/models/xgboost_phishing_model.json
+!email_agent/models/
+!FILE_AGENT/file_agent/models/

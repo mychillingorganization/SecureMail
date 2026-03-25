@@ -1,0 +1,24 @@
+{
+  "final_status": "PASS",
+  "issue_count": 0,
+  "termination_reason": null,
+  "execution_logs": [
+    "[INFO] Step 1: utils.parse_eml() - SUCCESS",
+    "[INFO] Step 2: protocol verification - SPF=True DKIM=True DMARC=True",
+    "[INFO] Step 2 details: SPF(pass): sender SPF authorized | DKIM(pass): Chữ ký DKIM hợp lệ | DMARC(pass): DMARC policy: none",
+    "[INFO] Step 3: attachment hash triage - SAFE",
+    "[INFO] Step 4: EmailAgent - PASS",
+    "[INFO] Step 5: FileAgent - PASS (Giáo trình Toán A2-tháng 9-2016.pdf)",
+    "[INFO] Step 5: FileAgent - PASS (TIỂU LUẬN NMXHH (CHỐT).docx)",
+    "[INFO] Step 5: FileAgent - PASS (Hacklog.jpg)",
+    "[INFO] Step 6: WebAgent - PASS (risk_score=0.0223)",
+    "[INFO] Step 7: Final verdict = PASS"
+  ],
+  "ai_classify": null,
+  "ai_reason": null,
+  "ai_summary": null,
+  "ai_provider": null,
+  "ai_confidence_percent": null,
+  "ai_cot_steps": [],
+  "ai_tool_trace": []
+}

@@ -9,7 +9,7 @@ Sử dụng:
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -43,7 +43,15 @@ _model_cache: dict[str, Optional[object]] = {}
 
 def _get_model_path_for_filetype(file_type: FileType, filename: Optional[str] = None) -> Path:
     """Return the best available model path for a specific file type."""
-    dataset_root = Path(__file__).parent.parent / "dataset"
+    configured_dir = os.getenv("FILE_AGENT_MODEL_DIR")
+    if configured_dir:
+        model_root = Path(configured_dir).resolve()
+    else:
+        # New default: keep inference artifacts inside FILE_AGENT/file_agent/models.
+        model_root = Path(__file__).parent / "models"
+        # Backward compatibility for older layouts.
+        if not model_root.exists():
+            model_root = Path(__file__).parent.parent / "dataset"
 
     # Candidate order per file type.
     # We avoid hard-failing on model.pkl because many deployments only ship per-type models.
@@ -75,12 +83,12 @@ def _get_model_path_for_filetype(file_type: FileType, filename: Optional[str] = 
         ]
 
     for name in candidates:
-        path = dataset_root / name
+        path = model_root / name
         if path.exists():
             return path
 
     # Keep deterministic behavior if no model exists at all.
-    return dataset_root / candidates[-1]
+    return model_root / candidates[-1]
 
 
 def _load_model(model_path: Path) -> object:

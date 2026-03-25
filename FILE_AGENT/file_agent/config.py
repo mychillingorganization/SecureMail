@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     yara_rules_dir: Path = Path("../yara_rules")
 
     # ✅ XGBoost: Primary Risk Scorer
-    xgboost_model_path:             Path  = Path("../dataset/model.pkl")
+    xgboost_model_path:             Path  = Path("./models/model_word.pkl")
     xgboost_confidence_threshold:   float = 0.70   # XGBoost output is final risk level
     xgboost_is_primary_scorer: bool = True  # XGBoost as primary scorer
     
