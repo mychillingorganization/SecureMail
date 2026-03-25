@@ -874,7 +874,6 @@ def summarize_tool_result(tool_name: str, data: dict[str, Any]) -> str:
             f"- Classification: {data.get('classify', 'unknown')}",
             f"- Confidence: {data.get('confidence_percent', 'unknown')}%",
             f"- Reason: {data.get('reason', 'No reason available')}",
-            "- Auth Headers (SPF/DKIM/DMARC): not evaluated in content-only mode",
         ]
 
         if url_count > 0:

@@ -14,6 +14,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 HEX64_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
+DEFAULT_LISTS_DIR = Path(__file__).resolve().parent / "data" / "lists"
 
 
 def normalize_url(raw: str) -> str:
@@ -131,8 +132,16 @@ def import_file_hash_blacklist(cur, file_hashes: list[str], batch_size: int) -> 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Import URL and file-hash blacklist CSVs into PostgreSQL")
-    parser.add_argument("--url-csv", default="URL_BlackList.csv", help="Path to URL blacklist CSV with 'url' column")
-    parser.add_argument("--file-csv", default="file_black_list.csv", help="Path to file hash blacklist CSV")
+    parser.add_argument(
+        "--url-csv",
+        default=str(DEFAULT_LISTS_DIR / "URL_BlackList.csv"),
+        help="Path to URL blacklist CSV with 'url' column",
+    )
+    parser.add_argument(
+        "--file-csv",
+        default=str(DEFAULT_LISTS_DIR / "file_black_list.csv"),
+        help="Path to file hash blacklist CSV",
+    )
     parser.add_argument("--batch-size", type=int, default=2000, help="Batch size for bulk upsert")
     args = parser.parse_args()
 
