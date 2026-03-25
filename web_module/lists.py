@@ -8,6 +8,7 @@ remote HTTP fetches never block at import time or during server startup.
 import asyncio
 import logging
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
@@ -16,8 +17,27 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-WHITELIST_FILE = os.getenv("WHITELIST_FILE", "whitelist.txt")
-BLACKLIST_FILE = os.getenv("BLACKLIST_FILE", "blacklist.txt")
+_MODULE_DIR = Path(__file__).resolve().parent
+_LIST_DIR_CANDIDATES: list[Path] = [
+    # Preferred shared DB list location in this repository.
+    _MODULE_DIR.parent / "src" / "db" / "data" / "lists",
+    # Common when running from repository root (including many container setups).
+    Path.cwd() / "src" / "db" / "data" / "lists",
+    # Backward-compatible fallback location near this module.
+    _MODULE_DIR / "data" / "lists",
+]
+
+
+def _resolve_default_list_file(filename: str) -> str:
+    for directory in _LIST_DIR_CANDIDATES:
+        candidate = directory / filename
+        if candidate.exists():
+            return str(candidate)
+    return str(_LIST_DIR_CANDIDATES[0] / filename)
+
+
+WHITELIST_FILE = os.getenv("WHITELIST_FILE", _resolve_default_list_file("whitelist.txt"))
+BLACKLIST_FILE = os.getenv("BLACKLIST_FILE", _resolve_default_list_file("blacklist.txt"))
 BLACKLIST_FETCH_TIMEOUT = float(os.getenv("BLACKLIST_FETCH_TIMEOUT", "8"))
 BLACKLIST_SOURCE_URLS: list[str] = [
     "https://openphish.com/feed.txt",
