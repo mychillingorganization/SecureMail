@@ -119,6 +119,16 @@ export function ScanDetail({ scan, onClose }: ScanDetailProps) {
                   </p>
                 </div>
               </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <p className={`text-xs ${isDark ? "text-white/50" : "text-slate-500"}`}>Sender</p>
+                  <p className="font-medium text-sm break-words">{scan.sender ?? "Unknown"}</p>
+                </div>
+                <div>
+                  <p className={`text-xs ${isDark ? "text-white/50" : "text-slate-500"}`}>Receiver</p>
+                  <p className="font-medium text-sm break-words">{scan.receiver ?? "Unknown"}</p>
+                </div>
+              </div>
             </div>
 
             {/* AI Analysis (LLM only) */}

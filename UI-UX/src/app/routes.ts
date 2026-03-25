@@ -15,4 +15,18 @@ export const router = createBrowserRouter([
       return { Component: mod.EmailScanner };
     },
   },
+  {
+    path: "/chat",
+    lazy: async () => {
+      const mod = await import("./components/ChatPage");
+      return { Component: mod.ChatPage };
+    },
+  },
+  {
+    path: "/list",
+    lazy: async () => {
+      const mod = await import("./components/WhitelistBlacklistPage");
+      return { Component: mod.WhitelistBlacklistPage };
+    },
+  },
 ]);

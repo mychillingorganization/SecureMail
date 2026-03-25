@@ -15,31 +15,32 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = ROOT / ".runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+PYTHON_BIN = sys.executable
 
 SERVICES = {
     "email": {
         "health": "http://127.0.0.1:8000/health",
-        "cmd": ["python3", "-m", "uvicorn", "email_agent.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "email_agent.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "file": {
         "health": "http://127.0.0.1:8001/health",
-        "cmd": ["python3", "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
         "cwd": ROOT / "FILE_AGENT" / "file_agent",
     },
     "web": {
         "health": "http://127.0.0.1:8002/health",
-        "cmd": ["python3", "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
         "cwd": ROOT / "web_agent",
     },
     "ai": {
         "health": "http://127.0.0.1:8003/health",
-        "cmd": ["python3", "-m", "uvicorn", "ai_agent.main:app", "--host", "127.0.0.1", "--port", "8003", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "ai_agent.main:app", "--host", "127.0.0.1", "--port", "8003", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "orchestrator": {
         "health": "http://127.0.0.1:8080/health",
-        "cmd": ["python3", "-m", "uvicorn", "orchestra.main:app", "--host", "127.0.0.1", "--port", "8080", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "orchestra.main:app", "--host", "127.0.0.1", "--port", "8080", "--log-level", "warning"],
         "cwd": ROOT,
     },
 }

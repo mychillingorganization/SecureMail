@@ -1,6 +1,8 @@
 import {
   LayoutDashboard,
   Mail,
+  MessageSquare,
+  ListChecks,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { useTheme } from "./ThemeContext";
@@ -14,6 +16,8 @@ export function Sidebar() {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Monitor", path: "/" },
+    { icon: MessageSquare, label: "Chat", path: "/chat" },
+    { icon: ListChecks, label: "Whitelist / Blacklist", path: "/list" },
   ];
 
   return (
