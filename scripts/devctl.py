@@ -123,8 +123,20 @@ def cmd_down() -> int:
 def cmd_test7(llm: bool, output: str | None) -> int:
     endpoint = "/api/v1/scan-llm" if llm else "/api/v1/scan"
     timeout_seconds = 360 if llm else 120
+
+    sample_candidates = [
+        ROOT / "test7.eml",
+        ROOT / "temporary" / "root-legacy" / "test7.eml",
+    ]
+    email_path = next((p for p in sample_candidates if p.exists()), None)
+    if email_path is None:
+        raise FileNotFoundError(
+            "test7 sample email not found. Expected one of: "
+            + ", ".join(str(p) for p in sample_candidates)
+        )
+
     payload = {
-        "email_path": str(ROOT / "test7.eml"),
+        "email_path": str(email_path),
         "user_accepts_danger": False,
     }
     req = Request(

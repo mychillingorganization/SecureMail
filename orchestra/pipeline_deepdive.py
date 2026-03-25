@@ -210,6 +210,13 @@ async def execute_pipeline_deepdive(
 					logs.append(f"[HALT] Step 3: {termination_reason}")
 					break
 
+				db_blacklisted = await _is_file_hash_blacklisted_in_db(session, attachment_hash)
+				if db_blacklisted:
+					malicious_hash_detected = True
+					termination_reason = f"Blacklisted file hash detected in DB: {attachment_hash}"
+					logs.append(f"[HALT] Step 3: {termination_reason}")
+					break
+
 				scan_result = deps.threat_scanner.scan_hash(attachment_hash)
 				if scan_result.verdict == "MALICIOUS":
 					malicious_hash_detected = True
@@ -222,6 +229,13 @@ async def execute_pipeline_deepdive(
 			urls = sorted(parsed.urls)
 			if urls:
 				for raw_url in urls:
+					db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
+					if db_blacklisted:
+						malicious_url_hash_detected = True
+						termination_reason = f"Blacklisted URL hash detected in DB: {_hash_url(raw_url)}"
+						logs.append(f"[HALT] Step 3: {termination_reason}")
+						break
+
 					db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
 					if db_blacklisted:
 						malicious_url_hash_detected = True

@@ -1,15 +1,6 @@
-from collections.abc import AsyncIterator
+"""Compatibility wrapper for migrated DB engine/session utilities.
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+Canonical database module now lives in src.db.database.
+"""
 
-from orchestra.config import get_settings
-
-
-settings = get_settings()
-engine = create_async_engine(settings.database_url, future=True, echo=False)
-SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-
-async def get_db_session() -> AsyncIterator[AsyncSession]:
-    async with SessionLocal() as session:
-        yield session
+from src.db.database import *  # noqa: F401,F403

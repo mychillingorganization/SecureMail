@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 import hashlib
+from email import policy
+from email.parser import BytesParser
+from email.utils import getaddresses
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -267,6 +270,41 @@ def _sanitize_tool_trace(tool_trace: object) -> list[dict[str, object]]:
     return sanitized
 
 
+def _normalize_contact_field(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+
+    addresses = [addr.strip().lower() for _, addr in getaddresses([text]) if addr and "@" in addr]
+    if addresses:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for addr in addresses:
+            if addr not in seen:
+                seen.add(addr)
+                deduped.append(addr)
+        return ", ".join(deduped)
+
+    # Fallback for malformed values: compact whitespace to avoid garbage formatting.
+    compact = " ".join(text.replace("\n", " ").replace("\r", " ").split())
+    return compact or None
+
+
+def _extract_sender_receiver_from_eml(eml_path: str) -> tuple[str | None, str | None]:
+    with open(eml_path, "rb") as handle:
+        msg = BytesParser(policy=policy.default).parse(handle)
+
+    sender = _normalize_contact_field(msg.get("From"))
+
+    to_values = msg.get_all("To", [])
+    receiver_raw = ", ".join(v for v in to_values if v)
+    receiver = _normalize_contact_field(receiver_raw)
+
+    return sender, receiver
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "orchestrator"}
@@ -409,8 +447,8 @@ async def save_scan_history(
         scan_history = ScanHistory(
             scan_mode=data.scan_mode,
             file_name=data.file_name,
-            sender=data.sender,
-            receiver=data.receiver,
+            sender=_normalize_contact_field(data.sender),
+            receiver=_normalize_contact_field(data.receiver),
             final_status=data.final_status,
             issue_count=data.issue_count,
             duration_ms=data.duration_ms,
@@ -757,6 +795,8 @@ async def upload_chat_eml(
     filename, temp_path = await _save_uploaded_eml_to_temp(file)
     settings_obj = get_settings()
     scan_result: ScanResponse
+    sender: str | None = None
+    receiver: str | None = None
 
     try:
         if mode == "rule":
@@ -773,6 +813,9 @@ async def upload_chat_eml(
                 settings=settings_obj,
                 user_accepts_danger=user_accepts_danger,
             )
+
+        # Parse normalized sender/receiver directly from the uploaded EML.
+        sender, receiver = _extract_sender_receiver_from_eml(temp_path)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -802,6 +845,8 @@ async def upload_chat_eml(
     trace_payload = {
         "scan_mode": mode,
         "file_name": filename,
+        "sender": sender,
+        "receiver": receiver,
         "final_status": scan_result.final_status,
         "issue_count": scan_result.issue_count,
         "termination_reason": scan_result.termination_reason,
@@ -844,6 +889,8 @@ async def upload_chat_eml(
         ScanHistory(
             scan_mode=mode,
             file_name=filename,
+            sender=sender,
+            receiver=receiver,
             final_status=scan_result.final_status,
             issue_count=scan_result.issue_count,
             duration_ms=0,

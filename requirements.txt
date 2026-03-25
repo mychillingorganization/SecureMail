@@ -1,7 +1,6 @@
 # SecureMail - Unified Python dependencies
-# One-file dependency list for orchestrator, email_agent, web_agent, and file_agent.
 
-# Core API & config
+# Core App (FastAPI + config)
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.8.2
@@ -10,26 +9,25 @@ python-multipart==0.0.9
 python-dotenv==1.0.1
 email-validator==2.1.1
 
-# HTTP
+# Networking
 httpx==0.27.0
 requests==2.32.3
 
-# Database & cache
+# Database (PostgreSQL + migrations) and cache
 SQLAlchemy==2.0.35
 alembic==1.13.1
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
-aiosqlite==0.20.0
 redis==5.0.8
 
-# Email agent protocol checks
+# Email Agent protocol checks
 pyspf==2.0.14
 dkimpy==1.1.3
 checkdmarc==5.3.1
 python-Levenshtein==0.23.0
 jellyfish==1.0.3
 
-# ML / data
+# ML and Data
 numpy==1.26.4
 scipy==1.14.1
 pandas==2.2.2
@@ -43,7 +41,7 @@ lxml==5.1.0
 ImageHash==4.3.1
 colorama==0.4.6
 
-# Static & dynamic file analysis
+# File analysis stack
 pefile==2023.2.7
 yara-python==4.5.1
 oletools==0.60.2
@@ -62,7 +60,7 @@ opencv-python-headless==4.10.0.84
 py7zr==0.22.0
 rarfile==4.2
 
-# File agent runtime and monitoring
+# Runtime and observability
 docker==7.1.0
 structlog==24.4.0
 watchdog==4.0.1

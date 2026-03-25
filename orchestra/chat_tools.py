@@ -33,6 +33,10 @@ DOMAIN_PATTERN = re.compile(
 SHA256_PATTERN = re.compile(r"\b[a-fA-F0-9]{64}\b")
 EMAIL_CONTENT_PATTERN = re.compile(r"(?:check|scan|analy[sz]e)\s+(?:e?mail)\s+content\s*[:\-]?\s*(.*)", re.IGNORECASE)
 AUTH_MENTION_PATTERN = re.compile(r"spf|dkim|dmarc|authentication", re.IGNORECASE)
+HYBRID_HINT_PATTERN = re.compile(
+    r"\b(hybrid|combined?|both|all\s+signals|full\s+check|deep\s+check|url\s*\+\s*content|content\s*\+\s*url)\b",
+    re.IGNORECASE,
+)
 
 
 def _hash_url(url: str) -> str:
@@ -312,6 +316,27 @@ def _has_descriptive_text_with_url(message: str) -> bool:
     return len(words) >= 4
 
 
+def _is_explicit_hybrid_request(message: str) -> bool:
+    """Hybrid checks must be explicitly requested to avoid unnecessary latency."""
+    text = message.strip().lower()
+    if not text:
+        return False
+
+    # Require clear combined-analysis language.
+    if HYBRID_HINT_PATTERN.search(text):
+        return True
+
+    # Also allow explicit "check content and url" phrasing.
+    if (
+        ("content" in text or "body" in text)
+        and ("url" in text or "link" in text)
+        and any(token in text for token in ["check", "scan", "analyze", "analyse", "combine"])
+    ):
+        return True
+
+    return False
+
+
 async def _collect_url_signals_for_content(session: AsyncSession, urls: list[str], settings_obj: Any) -> list[dict[str, Any]]:
     if not urls:
         return []
@@ -392,6 +417,7 @@ async def _collect_url_signals_for_content(session: AsyncSession, urls: list[str
 
 
 async def _check_email_content_ai(session: AsyncSession, message: str, settings_obj: Any) -> dict[str, Any]:
+    _ = session
     content = _extract_email_content(message)
     urls = _extract_urls_from_text(content)
 
@@ -412,65 +438,9 @@ async def _check_email_content_ai(session: AsyncSession, message: str, settings_
         "urls": urls,
     }
 
-    if urls:
-        content_ai_result, url_signals = await asyncio.gather(
-            ai_client.analyze(content_payload),
-            _collect_url_signals_for_content(session, urls, settings_obj),
-        )
-
-        dangerous_url_count = sum(1 for item in url_signals if str(item.get("verdict", "")).lower() == "phishing")
-        suspicious_url_count = sum(
-            1
-            for item in url_signals
-            if str(item.get("latest_analysis_label", "")).lower() == "suspicious"
-        )
-
-        combined_payload = {
-            "subject": "Chat email-content + URL combined check",
-            "sender": "chat-user",
-            "auth": {},
-            "email_agent": {
-                "email_content": content,
-                "source": "chat_manual_input",
-                "content_ai": {
-                    "classify": content_ai_result.get("classify"),
-                    "reason": content_ai_result.get("reason"),
-                    "confidence_percent": content_ai_result.get("confidence_percent"),
-                },
-            },
-            "file_agent": [],
-            "web_agent": {
-                "url_signals": url_signals,
-                "url_count": len(urls),
-                "dangerous_url_count": dangerous_url_count,
-                "suspicious_url_count": suspicious_url_count,
-            },
-            "issue_count": 2 if dangerous_url_count > 0 else (1 if suspicious_url_count > 0 else 0),
-            "provisional_final_status": (
-                "DANGER"
-                if dangerous_url_count > 0
-                else ("WARNING" if suspicious_url_count > 0 else "PASS")
-            ),
-            "termination_reason": (
-                "Embedded URL(s) detected as phishing"
-                if dangerous_url_count > 0
-                else ("Embedded URL(s) look suspicious" if suspicious_url_count > 0 else None)
-            ),
-            "urls": urls,
-        }
-
-        try:
-            ai_result = await ai_client.analyze(combined_payload)
-        except Exception:
-            ai_result = content_ai_result
-            ai_result["summary"] = str(ai_result.get("summary") or ai_result.get("reason") or "").strip()
-            ai_result["summary"] = (
-                (ai_result["summary"] + " ").strip()
-                + f"URL checks completed for {len(urls)} URL(s); dangerous={dangerous_url_count}, suspicious={suspicious_url_count}."
-            )
-    else:
-        url_signals = []
-        ai_result = await ai_client.analyze(content_payload)
+    # Keep content checks lightweight by default; hybrid URL+content is explicit via another tool.
+    url_signals: list[dict[str, Any]] = []
+    ai_result = await ai_client.analyze(content_payload)
 
     raw_reason = str(ai_result.get("reason") or "").strip()
     raw_summary = str(ai_result.get("summary") or "").strip()
@@ -484,7 +454,7 @@ async def _check_email_content_ai(session: AsyncSession, message: str, settings_
         "embedded_url_count": len(urls),
         "embedded_urls": urls,
         "url_signals": url_signals,
-        "hybrid_mode": bool(urls),
+        "hybrid_mode": False,
         "classify": ai_result.get("classify"),
         "reason": clean_reason,
         "summary": clean_summary,
@@ -729,12 +699,19 @@ def infer_tool_name(message: str) -> str | None:
     text = message.lower()
     has_email_content_marker = any(token in text for token in ["email content", "mail content", "email body", "mail body"])
     entity_type, _ = _extract_target(message)
+    explicit_hybrid = _is_explicit_hybrid_request(message)
+
+    # Priority rule: keep chat fast by default.
+    # 1) email-content marker => content AI (or hybrid only if explicitly requested)
+    # 2) direct URL/hash checks => focused tools
+    # 3) aggregate summaries => KPI/report tools
+
     if has_email_content_marker and any(token in text for token in ["check", "scan", "analyze", "analyse", "is"]):
-        if entity_type == "url":
+        if entity_type == "url" and explicit_hybrid:
             return "check_email_content_url_hybrid"
         return "check_email_content_ai"
     if has_email_content_marker:
-        if entity_type == "url":
+        if entity_type == "url" and explicit_hybrid:
             return "check_email_content_url_hybrid"
         return "check_email_content_ai"
     check_intent = any(
@@ -747,8 +724,6 @@ def infer_tool_name(message: str) -> str | None:
     ):
         return "read_only_policy"
     if entity_type == "url" and check_intent:
-        if _has_descriptive_text_with_url(message):
-            return "check_email_content_url_hybrid"
         return "check_url_reputation"
     if entity_type == "file_hash" and check_intent:
         return "check_file_hash_reputation"

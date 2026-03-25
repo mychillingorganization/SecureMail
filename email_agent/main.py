@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import time
 from contextlib import asynccontextmanager
@@ -43,7 +44,21 @@ class _EmailModelRuntime:
         self.scaler = None
 
     def load(self) -> None:
-        base_dir = Path(__file__).resolve().parent / "model_svm_email"
+        module_dir = Path(__file__).resolve().parent
+        configured_dir = os.getenv("EMAIL_AGENT_MODEL_DIR")
+        if configured_dir:
+            base_dir = Path(configured_dir).resolve()
+        else:
+            # New default: keep inference artifacts inside the email agent folder.
+            base_dir = module_dir / "models"
+            # Backward compatibility for older layouts.
+            if not (base_dir / "svm_model.pkl").exists():
+                legacy_candidates = [
+                    module_dir / "model_svm_email",
+                    module_dir.parent / "temporary" / "root-legacy" / "email_agent" / "model_svm_email",
+                ]
+                base_dir = next((p for p in legacy_candidates if (p / "svm_model.pkl").exists()), legacy_candidates[0])
+
         model_path = base_dir / "svm_model.pkl"
         tfidf_path = base_dir / "tfidf.pkl"
         scaler_path = base_dir / "scaler.pkl"
