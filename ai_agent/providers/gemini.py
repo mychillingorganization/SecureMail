@@ -45,8 +45,19 @@ class GeminiProvider:
     def _has_url_targets(self, payload: AnalyzeRequest) -> bool:
         return bool(payload.urls)
 
+    def _has_auth_signals(self, payload: AnalyzeRequest) -> bool:
+        auth = payload.auth or {}
+        for key in ("spf", "dkim", "dmarc"):
+            item = auth.get(key)
+            if isinstance(item, dict) and "pass" in item:
+                return True
+        return False
+
     def _required_sequence_for_payload(self, payload: AnalyzeRequest) -> list[str]:
-        sequence = ["auth_summary", "email_signal"]
+        sequence: list[str] = []
+        if self._has_auth_signals(payload):
+            sequence.append("auth_summary")
+        sequence.append("email_signal")
         if self._has_file_targets(payload):
             sequence.append("file_signal")
         if self._has_url_targets(payload):
@@ -403,7 +414,8 @@ class GeminiProvider:
 
     def _heuristic_fallback(self, payload: AnalyzeRequest, tool_history: list[dict[str, Any]], reason: str) -> AnalyzeResponse:
         # Deterministic fallback so downstream still receives schema-stable output.
-        auth = TOOLS["auth_summary"](payload, {})
+        has_auth_signals = self._has_auth_signals(payload)
+        auth = TOOLS["auth_summary"](payload, {}) if has_auth_signals else {"auth_all_pass": True}
         email = TOOLS["email_signal"](payload, {})
         web = TOOLS["web_signal"](payload, {})
         file_sig = TOOLS["file_signal"](payload, {})
@@ -412,10 +424,11 @@ class GeminiProvider:
         danger_reasons: list[str] = []
         safe_reasons: list[str] = []
 
-        if not auth.get("auth_all_pass", False):
-            danger_reasons.append("Authentication checks are not fully passed")
-        else:
-            safe_reasons.append("SPF/DKIM/DMARC checks passed")
+        if has_auth_signals:
+            if not auth.get("auth_all_pass", False):
+                danger_reasons.append("Authentication checks are not fully passed")
+            else:
+                safe_reasons.append("SPF/DKIM/DMARC checks passed")
 
         if email.get("is_suspicious"):
             danger_reasons.append("Email agent flagged suspicious signal")

@@ -25,7 +25,21 @@ type ScanResponse = {
   ai_cot_steps?: string[];
 };
 
-const API_BASE_URL = "http://localhost:8080";
+async function extractSenderReceiver(file: File): Promise<{ sender: string | null; receiver: string | null }> {
+  try {
+    const raw = await file.text();
+    const senderMatch = raw.match(/^From:\s*(.+)$/im);
+    const receiverMatch = raw.match(/^To:\s*(.+)$/im);
+    return {
+      sender: senderMatch?.[1]?.trim() || null,
+      receiver: receiverMatch?.[1]?.trim() || null,
+    };
+  } catch {
+    return { sender: null, receiver: null };
+  }
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
 function isValidEml(file: File | null): file is File {
   return Boolean(file && file.name.toLowerCase().endsWith(".eml"));
@@ -55,6 +69,12 @@ export function EmailScanner() {
   const status = useMemo(() => {
     if (!result) return null;
     return statusTone(result.final_status);
+  }, [result]);
+
+  const visibleLogs = useMemo(() => {
+    if (!result?.execution_logs?.length) return [];
+    // Avoid rendering very large log payloads in one paint.
+    return result.execution_logs.slice(0, 120);
   }, [result]);
 
   const selectFile = (candidate: File | null) => {
@@ -120,28 +140,28 @@ export function EmailScanner() {
       const payload = (await response.json()) as ScanResponse;
       const durationMs = Date.now() - uploadStartTime;
       setResult(payload);
+      const participants = await extractSenderReceiver(file);
 
-      // Save to PostgreSQL history (non-blocking)
-      try {
-        await saveScanToHistory({
-          scan_mode: scanMode,
-          file_name: file.name,
-          final_status: payload.final_status,
-          issue_count: payload.issue_count,
-          duration_ms: durationMs,
-          termination_reason: payload.termination_reason ?? null,
-          ai_classify: payload.ai_classify ?? null,
-          ai_reason: payload.ai_reason ?? null,
-          ai_summary: payload.ai_summary ?? null,
-          ai_provider: payload.ai_provider ?? null,
-          ai_confidence_percent: payload.ai_confidence_percent ?? null,
-          execution_logs: payload.execution_logs,
-          ai_cot_steps: payload.ai_cot_steps ?? [],
-        });
-      } catch (historyError) {
+      // Save to PostgreSQL history truly non-blocking.
+      void saveScanToHistory({
+        scan_mode: scanMode,
+        file_name: file.name,
+        sender: participants.sender,
+        receiver: participants.receiver,
+        final_status: payload.final_status,
+        issue_count: payload.issue_count,
+        duration_ms: durationMs,
+        termination_reason: payload.termination_reason ?? null,
+        ai_classify: payload.ai_classify ?? null,
+        ai_reason: payload.ai_reason ?? null,
+        ai_summary: payload.ai_summary ?? null,
+        ai_provider: payload.ai_provider ?? null,
+        ai_confidence_percent: payload.ai_confidence_percent ?? null,
+        execution_logs: payload.execution_logs,
+        ai_cot_steps: payload.ai_cot_steps ?? [],
+      }).catch((historyError) => {
         console.debug("Scan history save failed (non-blocking):", historyError);
-        // Non-blocking: display results even if history save fails
-      }
+      });
     } catch (uploadError) {
       let message = "Unexpected upload error.";
       
@@ -337,14 +357,19 @@ export function EmailScanner() {
                     <div>
                       <div className={cn("mb-2 text-xs font-semibold uppercase tracking-wide", isDark ? "text-white/50" : "text-slate-500")}>Execution Logs</div>
                       <div className={cn("max-h-[320px] space-y-2 overflow-auto rounded-lg border p-3 text-xs", isDark ? "border-white/10 bg-black/40" : "border-slate-200 bg-slate-50") }>
-                        {result.execution_logs.length === 0 ? (
+                        {visibleLogs.length === 0 ? (
                           <p className={cn(isDark ? "text-white/40" : "text-slate-500")}>No logs returned.</p>
                         ) : (
-                          result.execution_logs.map((line, idx) => (
+                          visibleLogs.map((line, idx) => (
                             <p key={`${line}-${idx}`} className={cn("leading-relaxed", isDark ? "text-white/80" : "text-slate-700")}>{line}</p>
                           ))
                         )}
                       </div>
+                      {result.execution_logs.length > visibleLogs.length ? (
+                        <p className={cn("mt-2 text-xs", isDark ? "text-white/50" : "text-slate-500")}>
+                          Showing first {visibleLogs.length} of {result.execution_logs.length} log lines.
+                        </p>
+                      ) : null}
                     </div>
                   </>
                 )}

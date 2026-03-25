@@ -2,24 +2,24 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { fetchScanHistory, type ScanHistoryItem } from "../api/scanHistory";
 
 export function useScanHistory(
-  limit: number = 50,
+  limit: number = 10,
+  searchTerm: string = "",
   scan_mode?: "rule" | "llm",
   autoFetch: boolean = false
 ) {
   const [history, setHistory] = useState<ScanHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const lastFetchRef = useRef<number>(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [passedCount, setPassedCount] = useState(0);
+  const [issuesCount, setIssuesCount] = useState(0);
+  const [dangerCount, setDangerCount] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const loadHistory = useCallback(async () => {
-    // Debounce: don't fetch more than once per 5 seconds
-    const now = Date.now();
-    if (now - lastFetchRef.current < 5000) {
-      return;
-    }
-    lastFetchRef.current = now;
+  const totalPages = Math.max(1, Math.ceil(totalItems / limit));
 
+  const loadHistory = useCallback(async () => {
     // Cancel previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -28,8 +28,13 @@ export function useScanHistory(
 
     setIsLoading(true);
     try {
-      const data = await fetchScanHistory(limit, scan_mode);
-      setHistory(data);
+      const skip = (currentPage - 1) * limit;
+      const data = await fetchScanHistory(limit, skip, searchTerm, scan_mode);
+      setHistory(data.items);
+      setTotalItems(data.total);
+      setPassedCount(data.passed_count || 0);
+      setIssuesCount(data.issues_count || 0);
+      setDangerCount(data.danger_count || 0);
       setError(null);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
@@ -41,7 +46,11 @@ export function useScanHistory(
     } finally {
       setIsLoading(false);
     }
-  }, [limit, scan_mode]);
+  }, [limit, scan_mode, currentPage, searchTerm]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [scan_mode, limit, searchTerm]);
 
   useEffect(() => {
     // Always load history on mount
@@ -64,6 +73,13 @@ export function useScanHistory(
     history,
     isLoading,
     error,
+    currentPage,
+    totalItems,
+    totalPages,
+    passedCount,
+    issuesCount,
+    dangerCount,
+    setCurrentPage,
     refresh: loadHistory,
   };
 }

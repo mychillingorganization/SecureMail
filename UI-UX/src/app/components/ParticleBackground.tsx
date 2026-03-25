@@ -1,5 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
-import { motion } from "motion/react";
+import { useEffect, useMemo, useState } from "react";
 
 interface Particle {
   id: string;
@@ -9,33 +8,57 @@ interface Particle {
   duration: number;
   delay: number;
   opacity: number;
+  drift: number;
 }
 
 export function ParticleBackground() {
-  const [mounted, setMounted] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [particleCount, setParticleCount] = useState(20);
 
   useEffect(() => {
-    setMounted(true);
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => {
+      const canAnimate = !mediaQuery.matches;
+      setEnabled(canAnimate);
+      setParticleCount(window.innerWidth < 1024 ? 10 : 20);
+    };
+
+    update();
+    mediaQuery.addEventListener("change", update);
+    window.addEventListener("resize", update);
+
+    return () => {
+      mediaQuery.removeEventListener("change", update);
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const particles = useMemo(() => {
-    return Array.from({ length: 60 }).map((_, i) => ({
+    return Array.from({ length: particleCount }).map((_, i) => ({
       id: `particle-${i}-${Math.random().toString(36).substring(2, 9)}`,
       x: Math.random() * 100,
       y: Math.random() * 100,
       size: Math.random() * 2 + 1,
-      duration: Math.random() * 10 + 10,
-      delay: Math.random() * 5,
-      opacity: Math.random() * 0.5 + 0.1,
+      duration: Math.random() * 8 + 14,
+      delay: Math.random() * 6,
+      opacity: Math.random() * 0.35 + 0.08,
+      drift: Math.random() * 18 - 9,
     }));
-  }, []);
+  }, [particleCount]);
 
-  if (!mounted) return null;
+  if (!enabled) return null;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden mix-blend-screen">
+      <style>{`
+        @keyframes particle-float {
+          0% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(var(--drift), -14px, 0); }
+          100% { transform: translate3d(calc(var(--drift) * -1), -26px, 0); }
+        }
+      `}</style>
       {particles.map((p) => (
-        <motion.div
+        <span
           key={p.id}
           className="absolute rounded-full bg-blue-300"
           style={{
@@ -44,17 +67,14 @@ export function ParticleBackground() {
             width: p.size,
             height: p.size,
             opacity: p.opacity,
-            boxShadow: `0 0 ${p.size * 2}px rgba(147,197,253,0.4)`,
-          }}
-          animate={{
-            y: [`${p.y}%`, `${(p.y - 20) % 100}%`],
-            opacity: [p.opacity, p.opacity * 2, p.opacity],
-          }}
-          transition={{
-            duration: p.duration,
-            repeat: Infinity,
-            delay: p.delay,
-            ease: "linear",
+            boxShadow: `0 0 ${p.size * 2}px rgba(147,197,253,0.35)`,
+            animationName: "particle-float",
+            animationDuration: `${p.duration}s`,
+            animationDelay: `${p.delay}s`,
+            animationTimingFunction: "linear",
+            animationIterationCount: "infinite",
+            // CSS custom property to avoid recalculating keyframes.
+            ["--drift" as string]: `${p.drift}px`,
           }}
         />
       ))}

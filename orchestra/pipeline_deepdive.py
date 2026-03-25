@@ -486,4 +486,5 @@ async def execute_pipeline_deepdive(
 		ai_provider=str(ai_provider) if ai_provider is not None else None,
 		ai_confidence_percent=ai_confidence_percent,
 		ai_cot_steps=ai_cot_steps,
+		ai_tool_trace=trace if isinstance(trace, list) else [],
 	)
