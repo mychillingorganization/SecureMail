@@ -60,25 +60,26 @@ export function KPICard({ title, value, subtext, icon, glowColor, trend }: KPICa
   const currentColors = colorMap[glowColor];
 
   return (
-    <div className={`group relative h-32 w-full overflow-hidden rounded-xl ${isDark ? 'bg-black/40 p-[1px]' : 'bg-white shadow-sm p-0 border border-slate-200'} backdrop-blur-xl transition-all duration-300 hover:scale-[1.02]`}>
+    <div className={`group relative h-32 w-full overflow-hidden rounded-xl ${isDark ? 'bg-black/40 p-[1px]' : 'bg-white shadow-sm p-0 border border-slate-200'} transition-colors`}>
       {/* Animated glowing border flow (Dark mode only) */}
       {isDark && (
         <div
-          className="absolute -inset-full animate-border-spin"
+          className="absolute -inset-full"
           style={{
             background: `conic-gradient(from 0deg, transparent 0%, transparent 80%, ${currentColors.glowVar} 100%)`,
+            opacity: 0.2,
           }}
         />
       )}
       
       {/* Card Content */}
-      <div className={`relative flex h-full w-full flex-col justify-between rounded-xl ${isDark ? 'bg-[#08080c]/90 border border-white/5 p-4' : `bg-white p-4 border-l-4 ${currentColors.lightBorder}`} backdrop-blur-2xl z-10`}>
+      <div className={`relative flex h-full w-full flex-col justify-between rounded-xl ${isDark ? 'bg-[#08080c]/90 border border-white/5 p-4' : `bg-white p-4 border-l-4 ${currentColors.lightBorder}`} z-10`}>
         <div className="flex items-center justify-between">
           <span className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
             {title}
           </span>
           <div
-            className={`flex h-8 w-8 items-center justify-center rounded-lg ${currentColors.bgInner} ${isDark ? currentColors.shadow : ''} transition-shadow duration-300 ${isDark ? `group-hover:shadow-[0_0_30px_${currentColors.glowVar}]` : ''}`}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg ${currentColors.bgInner} ${isDark ? 'shadow-sm' : ''}`}
           >
             <div className={currentColors.text}>{icon}</div>
           </div>

@@ -1,6 +1,8 @@
 import {
   LayoutDashboard,
   Mail,
+  MessageSquare,
+  ListChecks,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { useTheme } from "./ThemeContext";
@@ -14,10 +16,12 @@ export function Sidebar() {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Monitor", path: "/" },
+    { icon: MessageSquare, label: "Chat", path: "/chat" },
+    { icon: ListChecks, label: "Whitelist / Blacklist", path: "/list" },
   ];
 
   return (
-    <aside className={`hidden lg:flex w-64 flex-col border-r z-20 h-full transition-colors ${isDark ? 'border-white/5 bg-black/40 backdrop-blur-xl' : 'border-slate-200 bg-white/80 backdrop-blur-xl shadow-[4px_0_24px_rgba(0,0,0,0.02)]'}`}>
+    <aside className={`hidden lg:flex w-64 flex-col border-r z-20 h-full transition-colors ${isDark ? 'border-white/5 bg-black/40' : 'border-slate-200 bg-white shadow-sm'}`}>
       <div className={`flex flex-col items-center justify-center border-b py-8 ${isDark ? 'border-white/5' : 'border-slate-200'}`}>
         <SecureMailLogo isDark={isDark} className="w-36" />
       </div>
@@ -30,7 +34,7 @@ export function Sidebar() {
           <button
             key={idx}
             onClick={() => navigate(item.path)}
-            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-all duration-300 ${
+            className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
               location.pathname === item.path
                 ? isDark 
                   ? "bg-white/5 text-blue-400 font-medium border border-white/5 shadow-[inset_2px_0_0_0_#3b82f6]"
@@ -65,10 +69,10 @@ export function Sidebar() {
       </nav>
 
       <div className={`mt-auto border-t p-4 ${isDark ? 'border-white/5' : 'border-slate-200'}`}>
-        <div className={`rounded-lg p-4 text-center border backdrop-blur-md ${isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
+        <div className={`rounded-lg p-4 text-center border ${isDark ? 'bg-white/5 border-white/5' : 'bg-slate-50 border-slate-200'}`}>
           <div className={`mb-2 text-xs font-medium ${isDark ? 'text-white/50' : 'text-slate-500'}`}>System Status</div>
           <div className="flex items-center justify-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${isDark ? 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.8)]' : 'bg-emerald-500 shadow-sm'} animate-pulse`} />
+            <div className={`h-2 w-2 rounded-full ${isDark ? 'bg-emerald-400 shadow-sm' : 'bg-emerald-500 shadow-sm'}`} />
             <span className={`text-xs font-semibold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>All Nodes Active</span>
           </div>
         </div>

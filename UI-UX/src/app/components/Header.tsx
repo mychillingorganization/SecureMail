@@ -5,13 +5,13 @@ export function Header() {
   const { theme, toggleTheme } = useTheme();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-white/5 dark:border-white/5 bg-white/80 dark:bg-black/40 px-6 backdrop-blur-xl transition-colors">
+    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-white/5 dark:border-white/5 bg-white/95 dark:bg-black/70 px-6 transition-colors">
       <div className="flex items-center gap-4">
         <button className="rounded-md p-2 text-slate-500 dark:text-white/50 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white lg:hidden">
           <Menu className="h-5 w-5" />
         </button>
         <div className="relative flex items-center group">
-          <div className="flex items-center gap-2 rounded-full border border-blue-500/30 dark:border-blue-500/40 bg-white/50 dark:bg-white/5 px-4 py-1.5 text-sm text-slate-800 dark:text-blue-100 shadow-[0_0_15px_rgba(59,130,246,0.15)] dark:shadow-[0_0_20px_rgba(59,130,246,0.2)] backdrop-blur-md transition-all hover:border-blue-500/60 dark:hover:border-blue-400/60 hover:shadow-[0_0_20px_rgba(59,130,246,0.3)] cursor-pointer">
+          <div className="flex items-center gap-2 rounded-full border border-blue-500/30 dark:border-blue-500/40 bg-white dark:bg-white/5 px-4 py-1.5 text-sm text-slate-800 dark:text-blue-100 shadow-sm transition-colors hover:border-blue-500/60 dark:hover:border-blue-400/60 cursor-pointer">
             <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             <span className="font-medium">Last 24 Hours</span>
             <ChevronDown className="h-4 w-4 text-slate-400 dark:text-blue-300/70 ml-1" />
@@ -31,7 +31,7 @@ export function Header() {
           <button className="rounded-full p-2 text-slate-500 dark:text-white/50 transition-colors hover:bg-slate-100 dark:hover:bg-white/10 hover:text-slate-900 dark:hover:text-white">
             <Bell className="h-5 w-5" />
           </button>
-          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)] animate-pulse" />
+          <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-orange-500 shadow-sm" />
         </div>
         <div className="h-6 w-px bg-slate-200 dark:bg-white/10" />
         <button className="flex items-center gap-2 rounded-full p-1 pl-3 transition-colors hover:bg-slate-100 dark:hover:bg-white/5">

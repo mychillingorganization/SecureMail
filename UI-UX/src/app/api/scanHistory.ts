@@ -7,6 +7,8 @@ export type ScanHistoryItem = {
   timestamp: string;
   scan_mode: "rule" | "llm";
   file_name: string;
+  sender: string | null;
+  receiver: string | null;
   final_status: string;
   issue_count: number;
   duration_ms: number;
@@ -20,6 +22,16 @@ export type ScanHistoryItem = {
   ai_cot_steps: string[];
 };
 
+export type PaginatedScanHistoryResponse = {
+  total: number;
+  skip: number;
+  limit: number;
+  passed_count: number;
+  issues_count: number;
+  danger_count: number;
+  items: ScanHistoryItem[];
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 
 /**
@@ -28,6 +40,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080
 export async function saveScanToHistory(data: {
   scan_mode: "rule" | "llm";
   file_name: string;
+  sender: string | null;
+  receiver: string | null;
   final_status: string;
   issue_count: number;
   duration_ms: number;
@@ -72,12 +86,18 @@ export async function saveScanToHistory(data: {
  * Fetch scan history from PostgreSQL
  */
 export async function fetchScanHistory(
-  limit: number = 50,
+  limit: number = 10,
+  skip: number = 0,
+  search: string = "",
   scan_mode?: "rule" | "llm"
-): Promise<ScanHistoryItem[]> {
+): Promise<PaginatedScanHistoryResponse> {
   try {
     const params = new URLSearchParams();
     params.append("limit", limit.toString());
+    params.append("skip", skip.toString());
+    if (search.trim()) {
+      params.append("search", search.trim());
+    }
     if (scan_mode) {
       params.append("scan_mode", scan_mode);
     }
@@ -104,7 +124,15 @@ export async function fetchScanHistory(
     }
 
     const data = await response.json();
-    return Array.isArray(data) ? data : [];
+    return {
+      total: typeof data?.total === "number" ? data.total : 0,
+      skip: typeof data?.skip === "number" ? data.skip : 0,
+      limit: typeof data?.limit === "number" ? data.limit : limit,
+      passed_count: typeof data?.passed_count === "number" ? data.passed_count : 0,
+      issues_count: typeof data?.issues_count === "number" ? data.issues_count : 0,
+      danger_count: typeof data?.danger_count === "number" ? data.danger_count : 0,
+      items: Array.isArray(data?.items) ? data.items : [],
+    };
   } catch (err) {
     console.debug("Scan history fetch failed:", err instanceof Error ? err.message : "Unknown error");
     throw err;

@@ -141,6 +141,8 @@ class File(Base):
     risk_level: Mapped[RiskLevel | None] = mapped_column(SQLEnum(RiskLevel), nullable=True)
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_analyzed: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_whitelisted: Mapped[bool] = mapped_column(default=False, index=True)
+    is_blacklisted: Mapped[bool] = mapped_column(default=False, index=True)
 
     file_analyses: Mapped[list["FileAnalysis"]] = relationship(back_populates="file", cascade="all, delete-orphan")
 
@@ -432,6 +434,8 @@ class ScanHistory(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
     scan_mode: Mapped[str] = mapped_column(String(50), index=True)  # "rule" or "llm"
     file_name: Mapped[str] = mapped_column(String(255))
+    sender: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    receiver: Mapped[str | None] = mapped_column(String(255), nullable=True)
     final_status: Mapped[str] = mapped_column(String(100))
     issue_count: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
@@ -443,3 +447,44 @@ class ScanHistory(Base):
     ai_confidence_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     execution_logs: Mapped[list[str]] = mapped_column(JSON, default=[])
     ai_cot_steps: Mapped[list[str]] = mapped_column(JSON, default=[])
+
+
+class ChatRole(str, Enum):
+    user = "user"
+    assistant = "assistant"
+    tool = "tool"
+
+
+class ChatConversation(Base):
+    """Stores chat conversation threads."""
+
+    __tablename__ = "chat_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    title: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.created_at",
+    )
+
+
+class ChatMessage(Base):
+    """Stores a message within a conversation."""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("chat_conversations.id", ondelete="CASCADE"), index=True)
+    role: Mapped[ChatRole] = mapped_column(SQLEnum(ChatRole), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="sent")
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tool_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+
+    conversation: Mapped[ChatConversation] = relationship(back_populates="messages")

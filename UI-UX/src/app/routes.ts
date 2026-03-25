@@ -1,14 +1,32 @@
 import { createBrowserRouter } from "react-router";
-import { Dashboard } from "./components/Dashboard";
-import { EmailScanner } from "./components/EmailScanner";
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: Dashboard,
+    lazy: async () => {
+      const mod = await import("./components/Dashboard");
+      return { Component: mod.Dashboard };
+    },
   },
   {
     path: "/scanner",
-    Component: EmailScanner,
+    lazy: async () => {
+      const mod = await import("./components/EmailScanner");
+      return { Component: mod.EmailScanner };
+    },
+  },
+  {
+    path: "/chat",
+    lazy: async () => {
+      const mod = await import("./components/ChatPage");
+      return { Component: mod.ChatPage };
+    },
+  },
+  {
+    path: "/list",
+    lazy: async () => {
+      const mod = await import("./components/WhitelistBlacklistPage");
+      return { Component: mod.WhitelistBlacklistPage };
+    },
   },
 ]);

@@ -41,21 +41,46 @@ FILE_TYPE_MAP = {
 _model_cache: dict[str, Optional[object]] = {}
 
 
-def _get_model_path_for_filetype(file_type: FileType) -> Path:
-    """Return the model path for a specific file type"""
+def _get_model_path_for_filetype(file_type: FileType, filename: Optional[str] = None) -> Path:
+    """Return the best available model path for a specific file type."""
     dataset_root = Path(__file__).parent.parent / "dataset"
-    
+
+    # Candidate order per file type.
+    # We avoid hard-failing on model.pkl because many deployments only ship per-type models.
+    office_is_excel = False
+    if filename:
+        ext = Path(filename).suffix.lower()
+        office_is_excel = ext in {".xls", ".xlsx", ".xlsm", ".xlsb", ".csv"}
+
     if file_type == FileType.PDF:
-        return dataset_root / "model_pdf.pkl"
+        candidates = ["model_pdf.pkl", "model_word.pkl", "model_excel.pkl"]
     elif file_type == FileType.OFFICE:
-        return dataset_root / "model_word.pkl"
+        if office_is_excel:
+            candidates = ["model_excel.pkl", "model_word.pkl"]
+        else:
+            candidates = ["model_word.pkl", "model_excel.pkl"]
     elif file_type == FileType.QR_CODE:
-        return dataset_root / "model_qr.pkl"
+        candidates = ["model_qr.pkl", "model_image.pkl"]
     elif file_type == FileType.IMAGE:
-        return dataset_root / "model_image.pkl"
+        candidates = ["model_image.pkl", "model_qr.pkl"]
     else:
-        # Fallback to generic model for other types (PE, SCRIPT, ARCHIVE, UNKNOWN)
-        return dataset_root / "model.pkl"
+        # PE/SCRIPT/ARCHIVE/UNKNOWN fallback order uses available trained models first.
+        candidates = [
+            "model_word.pkl",
+            "model_excel.pkl",
+            "model_pdf.pkl",
+            "model_image.pkl",
+            "model_qr.pkl",
+            "model.pkl",
+        ]
+
+    for name in candidates:
+        path = dataset_root / name
+        if path.exists():
+            return path
+
+    # Keep deterministic behavior if no model exists at all.
+    return dataset_root / candidates[-1]
 
 
 def _load_model(model_path: Path) -> object:
@@ -170,7 +195,7 @@ def predict_risk(result: AnalysisResult, model_path: Optional[Path] = None) -> d
     """
     # Nếu không chỉ định model_path, tự động chọn model theo file_type
     if model_path is None:
-        model_path = _get_model_path_for_filetype(result.file_type)
+        model_path = _get_model_path_for_filetype(result.file_type, result.filename)
         logger.info(f"[XGB] Auto-selected model for {result.file_type.value}: {model_path.name}")
 
     model = _load_model(model_path)

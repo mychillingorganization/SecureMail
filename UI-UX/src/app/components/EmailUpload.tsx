@@ -18,6 +18,20 @@ type ScanResponse = {
   ai_cot_steps?: string[];
 };
 
+async function extractSenderReceiver(file: File): Promise<{ sender: string | null; receiver: string | null }> {
+  try {
+    const raw = await file.text();
+    const senderMatch = raw.match(/^From:\s*(.+)$/im);
+    const receiverMatch = raw.match(/^To:\s*(.+)$/im);
+    return {
+      sender: senderMatch?.[1]?.trim() || null,
+      receiver: receiverMatch?.[1]?.trim() || null,
+    };
+  } catch {
+    return { sender: null, receiver: null };
+  }
+}
+
 const API_BASE_URL = "http://localhost:8080";
 
 function isValidEml(file: File | null): file is File {
@@ -94,11 +108,14 @@ export function EmailUpload() {
 
       const payload = (await response.json()) as ScanResponse;
       const durationMs = Date.now() - uploadStartTime;
+      const participants = await extractSenderReceiver(file);
 
       // Save to history
       await saveScanToHistory({
         scan_mode: scanMode,
         file_name: file.name,
+        sender: participants.sender,
+        receiver: participants.receiver,
         final_status: payload.final_status,
         issue_count: payload.issue_count,
         duration_ms: durationMs,
