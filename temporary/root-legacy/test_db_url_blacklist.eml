@@ -1,8 +1,0 @@
-From: test.sender@example.com
-To: test.receiver@example.com
-Subject: DB blacklist URL triage test
-Date: Tue, 25 Mar 2026 12:00:00 +0000
-Content-Type: text/plain; charset="utf-8"
-
-Please review this URL:
-https://db-blacklist-test.example/login
