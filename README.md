@@ -54,7 +54,7 @@ SecureMail/
 ├── model_training_pipeline/
 │   ├── README.md
 │   ├── file_module/
-│   ├── email_agent/
+│   ├── email_module/
 │   ├── web_module/
 │   └── data/
 └── temporary/
