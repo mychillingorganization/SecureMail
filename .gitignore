@@ -201,3 +201,4 @@ test5.eml:OECustomProperty
 test6.eml:OECustomProperty
 test7.eml:OECustomProperty
 batch_test_eml_scan_llm_report.json
+/UI-UX/node_modules

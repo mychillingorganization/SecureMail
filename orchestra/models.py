@@ -421,3 +421,25 @@ class ThreatListChange(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     threat_list_update: Mapped[ThreatListUpdate] = relationship(back_populates="threat_list_changes")
+
+
+class ScanHistory(Base):
+    """Stores frontend scan result history for dashboard and analytics."""
+
+    __tablename__ = "scan_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    scan_mode: Mapped[str] = mapped_column(String(50), index=True)  # "rule" or "llm"
+    file_name: Mapped[str] = mapped_column(String(255))
+    final_status: Mapped[str] = mapped_column(String(100))
+    issue_count: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    termination_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ai_classify: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ai_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ai_confidence_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    execution_logs: Mapped[list[str]] = mapped_column(JSON, default=[])
+    ai_cot_steps: Mapped[list[str]] = mapped_column(JSON, default=[])

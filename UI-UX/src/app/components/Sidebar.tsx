@@ -2,15 +2,19 @@ import {
   LayoutDashboard,
   Mail,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
 import { useTheme } from "./ThemeContext";
 import { SecureMailLogo } from "./SecureMailLogo";
 
 export function Sidebar() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
-    { icon: LayoutDashboard, label: "Monitor", active: true },
+    { icon: LayoutDashboard, label: "Monitor", path: "/" },
+    { icon: Mail, label: "Scanner", path: "/scanner" },
   ];
 
   return (
@@ -26,8 +30,9 @@ export function Sidebar() {
         {navItems.map((item, idx) => (
           <button
             key={idx}
+            onClick={() => navigate(item.path)}
             className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-all duration-300 ${
-              item.active
+              location.pathname === item.path
                 ? isDark 
                   ? "bg-white/5 text-blue-400 font-medium border border-white/5 shadow-[inset_2px_0_0_0_#3b82f6]"
                   : "bg-blue-50 text-blue-600 font-medium border-l-2 border-blue-500 shadow-sm"
@@ -38,7 +43,7 @@ export function Sidebar() {
           >
             <item.icon
               className={`h-4 w-4 ${
-                item.active 
+                location.pathname === item.path
                   ? isDark ? "text-blue-400" : "text-blue-600"
                   : isDark ? "text-white/30 group-hover:text-white/60" : "text-slate-400 group-hover:text-slate-600"
               }`}
@@ -47,11 +52,14 @@ export function Sidebar() {
           </button>
         ))}
 
-        <button className={`mt-2 flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition-all shadow-md active:scale-95 ${
+        <button
+          onClick={() => navigate("/scanner")}
+          className={`mt-2 flex w-full items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition-all shadow-md active:scale-95 ${
           isDark 
             ? "bg-blue-600 text-white hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(59,130,246,0.4)] border border-blue-400/20" 
             : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg border border-transparent"
-        }`}>
+        }`}
+        >
           <Mail className="h-4 w-4" />
           Check Email
         </button>
