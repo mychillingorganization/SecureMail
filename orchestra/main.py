@@ -34,13 +34,15 @@ settings = get_settings()
 # Handle wildcard origin specially
 if settings.cors_allow_origins == "*":
     origins = ["*"]
+    allow_credentials = False  # Wildcard origins cannot use credentials
 else:
     origins = [item.strip() for item in settings.cors_allow_origins.split(",") if item.strip()]
+    allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
