@@ -370,14 +370,31 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
         )
 
         urls = sorted(parsed.urls)
+        url_links: list[str] = []
         for url in urls:
             default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
             url_hash = await _upsert_url(session, url, default_status)
+            url_links.append(url_hash)
+
+        # Ensure parent URL rows exist before association rows are flushed.
+        await session.flush()
+
+        for url_hash in url_links:
             session.add(EmailUrl(email_id=email_row.id, url_hash=url_hash))
 
+        # Flush URL links before any later query-triggered autoflush.
+        await session.flush()
+
+        file_links: list[str] = []
         for file_hash, file_path in attachment_hashes:
             default_status = EntityStatus.malicious if final_status == "DANGER" and user_accepts_danger else EntityStatus.unknown
             row_hash = await _upsert_file(session, file_hash, file_path, default_status)
+            file_links.append(row_hash)
+
+        # Ensure parent file rows exist before association rows are flushed.
+        await session.flush()
+
+        for row_hash in file_links:
             session.add(EmailFile(email_id=email_row.id, file_hash=row_hash))
 
         await session.commit()

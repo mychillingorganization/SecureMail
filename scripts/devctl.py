@@ -12,10 +12,13 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from utils.cli_progress import StepProgress
+
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_DIR = ROOT / ".runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 PYTHON_BIN = sys.executable
+DEFAULT_SCAN_OUTPUT_DIR = ROOT / "orchestra" / "scan_results"
 
 SERVICES = {
     "email": {
@@ -64,6 +67,16 @@ def _log_file(name: str) -> Path:
     return RUNTIME_DIR / f"{name}.log"
 
 
+def _default_scan_output_path(llm: bool) -> Path:
+    configured_dir = os.getenv("SECUREMAIL_SCAN_OUTPUT_DIR", "").strip()
+    output_dir = Path(configured_dir) if configured_dir else DEFAULT_SCAN_OUTPUT_DIR
+    if not output_dir.is_absolute():
+        output_dir = ROOT / output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filename = "test7_scan_llm_ai_agent_output.json" if llm else "test7_scan_output.json"
+    return output_dir / filename
+
+
 def _start_service(name: str, spec: dict[str, object]) -> None:
     if _is_up(str(spec["health"])):
         print(f"[UP] {name} already healthy")
@@ -92,20 +105,28 @@ def _start_service(name: str, spec: dict[str, object]) -> None:
 
 
 def cmd_up() -> int:
+    progress = StepProgress(total_steps=len(SERVICES), label="Service startup")
     for name, spec in SERVICES.items():
+        progress.next(f"Starting {name}")
         _start_service(name, spec)
+    progress.done("All services processed")
     return 0
 
 
 def cmd_status() -> int:
+    progress = StepProgress(total_steps=len(SERVICES), label="Service health check")
     for name, spec in SERVICES.items():
         status = "UP" if _is_up(str(spec["health"])) else "DOWN"
         print(f"{name:12s} {status:4s} {spec['health']}")
+        progress.next(f"Checked {name}")
+    progress.done("Health checks complete")
     return 0
 
 
 def cmd_down() -> int:
+    progress = StepProgress(total_steps=len(SERVICES), label="Service shutdown")
     for name in SERVICES:
+        progress.next(f"Stopping {name}")
         p = _pid_file(name)
         if not p.exists():
             continue
@@ -117,12 +138,15 @@ def cmd_down() -> int:
             print(f"[WARN] cannot stop {name}: {exc}")
         finally:
             p.unlink(missing_ok=True)
+    progress.done("Shutdown complete")
     return 0
 
 
 def cmd_test7(llm: bool, output: str | None) -> int:
+    progress = StepProgress(total_steps=5, label="Test7 scan")
     endpoint = "/api/v1/scan-llm" if llm else "/api/v1/scan"
     timeout_seconds = 360 if llm else 120
+    progress.next("Prepared scan endpoint")
 
     sample_candidates = [
         ROOT / "test7.eml",
@@ -134,6 +158,7 @@ def cmd_test7(llm: bool, output: str | None) -> int:
             "test7 sample email not found. Expected one of: "
             + ", ".join(str(p) for p in sample_candidates)
         )
+    progress.next("Located sample email")
 
     payload = {
         "email_path": str(email_path),
@@ -149,13 +174,19 @@ def cmd_test7(llm: bool, output: str | None) -> int:
     with urlopen(req, timeout=timeout_seconds) as resp:
         body = resp.read().decode("utf-8")
         data = json.loads(body)
+    progress.next("Uploaded and received scan result")
 
     print(f"HTTP: {resp.status}")
     print(f"final_status={data.get('final_status')} issue_count={data.get('issue_count')} termination_reason={data.get('termination_reason')}")
 
-    out_path = Path(output) if output else ROOT / ("test7_scan_llm_ai_agent_output.json" if llm else "test7_scan_output.json")
+    out_path = Path(output) if output else _default_scan_output_path(llm)
+    if not out_path.is_absolute():
+        out_path = ROOT / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    progress.next("Saved scan output")
     print(f"saved={out_path}")
+    progress.done("Completed")
     return 0
 
 
