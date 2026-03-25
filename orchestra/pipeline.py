@@ -5,6 +5,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +39,26 @@ def _hash_file(path: Path) -> str:
 
 
 def _hash_url(url: str) -> str:
-    return hashlib.sha256(url.encode("utf-8", errors="ignore")).hexdigest()
+    normalized = _normalize_url_for_hash(url)
+    candidate = normalized or (url or "")
+    return hashlib.sha256(candidate.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _normalize_url_for_hash(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    scheme = (parsed.scheme or "https").lower()
+    netloc = parsed.netloc.lower()
+
+    # Support plain-domain input like "example.com/path".
+    if not netloc and parsed.path and "." in parsed.path:
+        parsed = urlsplit(f"{scheme}://{value}")
+        netloc = parsed.netloc.lower()
+
+    return urlunsplit((scheme, netloc, parsed.path or "", parsed.query or "", ""))
 
 
 def _verdict_type_from_status(status: str) -> VerdictType:
@@ -66,27 +86,24 @@ def _status_is_malicious(status: Any) -> bool:
 async def _is_file_hash_blacklisted_in_db(session: AsyncSession, file_hash: str) -> bool:
     db_obj = await session.get(File, file_hash)
     if db_obj is None:
-<<<<<<< HEAD
         db_obj = await session.get(File, file_hash.upper())
     if db_obj is None:
         return False
-    return bool(getattr(db_obj, "is_blacklisted", False))
-=======
-        return False
     return bool(getattr(db_obj, "is_blacklisted", False)) or _status_is_malicious(getattr(db_obj, "status", None))
->>>>>>> origin/main
 
 
 async def _is_url_hash_blacklisted_in_db(session: AsyncSession, raw_url: str) -> bool:
-    url_hash = _hash_url(raw_url)
-    db_obj = await session.get(Url, url_hash)
+    normalized_hash = _hash_url(raw_url)
+    db_obj = await session.get(Url, normalized_hash)
+
+    # Backward compatibility: older records may have used raw URL hashing.
+    if db_obj is None:
+        raw_hash = hashlib.sha256((raw_url or "").encode("utf-8", errors="ignore")).hexdigest()
+        db_obj = await session.get(Url, raw_hash)
+
     if db_obj is None:
         return False
-<<<<<<< HEAD
-    return bool(getattr(db_obj, "is_blacklisted", False))
-=======
     return bool(getattr(db_obj, "is_blacklisted", False)) or _status_is_malicious(getattr(db_obj, "status", None))
->>>>>>> origin/main
 
 
 async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
@@ -158,10 +175,7 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     continue
                 attachment_hash = _hash_file(attachment)
                 attachment_hashes.append((attachment_hash, str(attachment)))
-<<<<<<< HEAD
 
-=======
->>>>>>> origin/main
                 db_blacklisted = await _is_file_hash_blacklisted_in_db(session, attachment_hash)
                 if db_blacklisted:
                     malicious_hash_detected = True
@@ -179,10 +193,6 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
             if not malicious_hash_detected:
                 logs.append("[INFO] Step 3: attachment hash triage - SAFE")
 
-<<<<<<< HEAD
-=======
-            malicious_url_hash_detected = False
->>>>>>> origin/main
             urls = sorted(parsed.urls)
             if urls:
                 for raw_url in urls:
@@ -193,7 +203,6 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                         logs.append(f"[HALT] Step 3: {termination_reason}")
                         break
 
-<<<<<<< HEAD
                     url_hash = _hash_url(raw_url)
                     scan_result = deps.threat_scanner.scan_hash(url_hash)
                     if scan_result.verdict == "MALICIOUS":
@@ -201,15 +210,6 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                         termination_reason = f"Malicious URL hash detected: {url_hash}"
                         logs.append(f"[HALT] Step 3: {termination_reason}")
                         break
-
-=======
-                    scan_result = deps.threat_scanner.scan_hash(_hash_url(raw_url))
-                    if scan_result.verdict == "MALICIOUS":
-                        malicious_url_hash_detected = True
-                        termination_reason = f"Malicious URL hash detected: {_hash_url(raw_url)}"
-                        logs.append(f"[HALT] Step 3: {termination_reason}")
-                        break
->>>>>>> origin/main
                 if not malicious_url_hash_detected:
                     logs.append("[INFO] Step 3: URL hash triage - SAFE")
             else:
