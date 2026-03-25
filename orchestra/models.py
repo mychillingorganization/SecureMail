@@ -151,6 +151,8 @@ class Url(Base):
     url_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     raw_url: Mapped[str] = mapped_column(Text)
     status: Mapped[EntityStatus] = mapped_column(SQLEnum(EntityStatus), default=EntityStatus.unknown)
+    is_whitelisted: Mapped[bool] = mapped_column(default=False, index=True)
+    is_blacklisted: Mapped[bool] = mapped_column(default=False, index=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     risk_level: Mapped[RiskLevel | None] = mapped_column(SQLEnum(RiskLevel), nullable=True)
     first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

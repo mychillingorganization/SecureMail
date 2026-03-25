@@ -63,7 +63,13 @@ async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus)
         db_obj = Url(url_hash=url_hash, raw_url=raw_url, status=status)
         session.add(db_obj)
     else:
-        db_obj.status = status
+        # Preserve customer-managed blacklist/whitelist decisions.
+        if getattr(db_obj, "is_blacklisted", False):
+            db_obj.status = EntityStatus.malicious
+        elif getattr(db_obj, "is_whitelisted", False):
+            db_obj.status = EntityStatus.benign
+        else:
+            db_obj.status = status
     return url_hash
 
 
