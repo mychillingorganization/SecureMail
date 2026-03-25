@@ -12,9 +12,15 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
-from utils.cli_progress import StepProgress
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+UTILS_DIR = ROOT / "utils"
+if str(UTILS_DIR) not in sys.path:
+    sys.path.insert(0, str(UTILS_DIR))
+
+from cli_progress import StepProgress
+
 RUNTIME_DIR = ROOT / ".runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 PYTHON_BIN = sys.executable
@@ -83,6 +89,15 @@ def _start_service(name: str, spec: dict[str, object]) -> None:
         return
 
     log_path = _log_file(name)
+    env = os.environ.copy()
+    root_path = str(ROOT)
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        f"{root_path}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else root_path
+    )
+
     with log_path.open("a", encoding="utf-8") as log:
         proc = subprocess.Popen(
             spec["cmd"],
@@ -90,7 +105,7 @@ def _start_service(name: str, spec: dict[str, object]) -> None:
             stdout=log,
             stderr=log,
             start_new_session=True,
-            env=os.environ.copy(),
+            env=env,
         )
 
     _pid_file(name).write_text(str(proc.pid), encoding="utf-8")

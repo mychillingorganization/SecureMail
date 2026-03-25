@@ -18,6 +18,37 @@ type LocalIntentDetection = {
   highConfidence: boolean;
 };
 
+const CHAT_DRAFT_STORAGE_KEY = "securemail.chat.draft";
+const CHAT_CONTEXT_MODE_STORAGE_KEY = "securemail.chat.contextMode";
+const CHAT_SCAN_MODE_STORAGE_KEY = "securemail.chat.scanMode";
+const CHAT_COMPOSER_NOTICE_STORAGE_KEY = "securemail.chat.composerNotice";
+
+
+function readSessionValue(key: string): string {
+  if (typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(key) ?? "";
+}
+
+
+function writeSessionValue(key: string, value: string): void {
+  if (typeof window === "undefined") return;
+  if (value.trim().length > 0) {
+    window.sessionStorage.setItem(key, value);
+  } else {
+    window.sessionStorage.removeItem(key);
+  }
+}
+
+
+function readContextMode(): "general" | "scan" {
+  return readSessionValue(CHAT_CONTEXT_MODE_STORAGE_KEY) === "scan" ? "scan" : "general";
+}
+
+
+function readScanMode(): "rule" | "llm" {
+  return readSessionValue(CHAT_SCAN_MODE_STORAGE_KEY) === "rule" ? "rule" : "llm";
+}
+
 function detectLocalIntent(message: string, hasPendingAttachment: boolean): LocalIntentDetection {
   const text = message.trim().toLowerCase();
   if (!text) {
@@ -95,12 +126,15 @@ export function ChatPage() {
     removeConversation,
   } = useChat();
 
-  const [draft, setDraft] = useState("");
-  const [contextMode, setContextMode] = useState<"general" | "scan">("general");
+  const [draft, setDraft] = useState(() => readSessionValue(CHAT_DRAFT_STORAGE_KEY));
+  const [contextMode, setContextMode] = useState<"general" | "scan">(() => readContextMode());
   const [dragActive, setDragActive] = useState(false);
-  const [scanMode, setScanMode] = useState<"rule" | "llm">("llm");
+  const [scanMode, setScanMode] = useState<"rule" | "llm">(() => readScanMode());
   const [pendingEmlFile, setPendingEmlFile] = useState<File | null>(null);
-  const [composerNotice, setComposerNotice] = useState<string | null>(null);
+  const [composerNotice, setComposerNotice] = useState<string | null>(() => {
+    const value = readSessionValue(CHAT_COMPOSER_NOTICE_STORAGE_KEY);
+    return value || null;
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -129,6 +163,22 @@ export function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [activeConversationId, activeMessages.length, isSending, isUploadingEml]);
+
+  useEffect(() => {
+    writeSessionValue(CHAT_DRAFT_STORAGE_KEY, draft);
+  }, [draft]);
+
+  useEffect(() => {
+    writeSessionValue(CHAT_CONTEXT_MODE_STORAGE_KEY, contextMode);
+  }, [contextMode]);
+
+  useEffect(() => {
+    writeSessionValue(CHAT_SCAN_MODE_STORAGE_KEY, scanMode);
+  }, [scanMode]);
+
+  useEffect(() => {
+    writeSessionValue(CHAT_COMPOSER_NOTICE_STORAGE_KEY, composerNotice ?? "");
+  }, [composerNotice]);
 
   const activeTitle = useMemo(() => {
     if (!activeConversationId) return "New Conversation";
