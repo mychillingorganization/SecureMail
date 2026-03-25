@@ -8,7 +8,7 @@ echo "[1/5] Creating required directories..."
 mkdir -p model_training_pipeline/{file_module,email_agent,web_module,data}
 mkdir -p temporary/{root-legacy,docs,scripts}
 mkdir -p src/db/migrations/versions
-mkdir -p FILE_AGENT/file_module/models email_agent/models web_module/models
+mkdir -p file_module/file_module/models email_agent/models web_module/models
 
 echo "[2/5] Creating virtual environment..."
 if [[ ! -d .venv ]]; then

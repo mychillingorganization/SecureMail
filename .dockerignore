@@ -22,4 +22,4 @@ model_training_pipeline/
 !web_module/models/
 !web_module/models/xgboost_phishing_model.json
 !email_agent/models/
-!FILE_AGENT/file_module/models/
+!file_module/file_module/models/

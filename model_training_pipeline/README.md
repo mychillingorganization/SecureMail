@@ -11,6 +11,6 @@ This folder contains training-only assets and evaluation data, isolated from run
 ## Notes
 - Do not mount this folder in production containers.
 - Runtime inference models must stay inside each owning agent folder:
-  - FILE_AGENT/file_module/models/
+  - file_module/file_module/models/
   - email_agent/models/
   - web_module/models/

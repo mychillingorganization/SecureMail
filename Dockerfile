@@ -17,7 +17,7 @@ COPY src ./src
 COPY ai_module ./ai_module
 COPY email_agent ./email_agent
 COPY web_module ./web_module
-COPY FILE_AGENT/file_module ./FILE_AGENT/file_module
+COPY file_module/file_module ./file_module/file_module
 COPY scripts ./scripts
 
 EXPOSE 8080

@@ -42,7 +42,7 @@ SecureMail/
 │   ├── main.py
 │   └── models/
 │       └── xgboost_phishing_model.json
-├── FILE_AGENT/
+├── file_module/
 │   └── file_module/
 │       ├── main.py
 │       └── models/
@@ -68,7 +68,7 @@ SecureMail/
 Each agent stores its own inference artifacts:
 - `email_agent/models/`
 - `web_module/models/`
-- `FILE_AGENT/file_module/models/`
+- `file_module/file_module/models/`
 
 Training/evaluation code and datasets live only in `model_training_pipeline/`.
 
