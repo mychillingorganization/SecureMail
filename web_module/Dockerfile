@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source files
 COPY web_module/*.py ./
 COPY web_module/models/xgboost_phishing_model.json ./models/
+# NOTE: Docker build context must be the repository root so that src/db/data/lists is available.
 COPY src/db/data/lists ./data/lists
 
 # Optional list files (mount or bake in)

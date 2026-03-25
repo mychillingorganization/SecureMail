@@ -873,7 +873,7 @@ def summarize_tool_result(tool_name: str, data: dict[str, Any]) -> str:
             "Email Content Check",
             f"- Classification: {data.get('classify', 'unknown')}",
             f"- Confidence: {data.get('confidence_percent', 'unknown')}%",
-            f"- Reason: {data.get('reason', 'No reason available')}"
+            f"- Reason: {data.get('reason', 'No reason available')}",
         ]
 
         if url_count > 0:
