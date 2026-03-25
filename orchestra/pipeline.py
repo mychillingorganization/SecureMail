@@ -343,6 +343,12 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     logs.append(f"[HALT] Step 6: {termination_reason}")
 
         final_status = "DANGER" if decision.halt else final_status_from_issue_count(issue_count)
+        if decision.halt:
+            logs.append(
+                "[REASONING] Termination summary: "
+                f"reason={termination_reason or decision.reason or 'policy halt'}, "
+                f"issue_count={issue_count}, auth_failed={auth_failed}"
+            )
         logs.append(f"[INFO] Step 7: Final verdict = {final_status}")
 
         email_row = Email(

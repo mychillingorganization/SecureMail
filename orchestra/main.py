@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 import json
 import hashlib
+import re
 from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
@@ -32,6 +33,9 @@ from orchestra.schemas import (
     ChatIntentResponse,
     ChatMessageResponse,
     ChatMessagesResponse,
+    ScanBatchItemResult,
+    ScanBatchRequest,
+    ScanBatchResponse,
     ChatSendRequest,
     ChatSendResponse,
     ScanHistoryCreate,
@@ -89,6 +93,50 @@ app.add_middleware(
 
 QUICK_CHECK_HTML_PATH = Path(__file__).with_name("quick_check.html")
 QUICK_CHECK_HTML = QUICK_CHECK_HTML_PATH.read_text(encoding="utf-8")
+URL_EVIDENCE_PATTERN = re.compile(r"https?://[^\s,\]]+", re.IGNORECASE)
+HASH_EVIDENCE_PATTERN = re.compile(r"\b[a-fA-F0-9]{64}\b")
+
+
+def _extract_scan_evidence_urls(scan_result: ScanResponse) -> list[str]:
+    candidates: list[str] = []
+
+    if scan_result.termination_reason:
+        candidates.extend(URL_EVIDENCE_PATTERN.findall(scan_result.termination_reason))
+
+    for line in scan_result.execution_logs or []:
+        if "[EVIDENCE]" in line or "dangerous_urls=" in line:
+            candidates.extend(URL_EVIDENCE_PATTERN.findall(line))
+
+    seen: set[str] = set()
+    unique_urls: list[str] = []
+    for item in candidates:
+        normalized = item.strip().rstrip(".,;)")
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_urls.append(normalized)
+    return unique_urls
+
+
+def _extract_scan_evidence_hashes(scan_result: ScanResponse) -> list[str]:
+    candidates: list[str] = []
+
+    if scan_result.termination_reason:
+        candidates.extend(HASH_EVIDENCE_PATTERN.findall(scan_result.termination_reason))
+
+    for line in scan_result.execution_logs or []:
+        if "[EVIDENCE]" in line or "dangerous_file_hashes=" in line:
+            candidates.extend(HASH_EVIDENCE_PATTERN.findall(line))
+
+    seen: set[str] = set()
+    unique_hashes: list[str] = []
+    for item in candidates:
+        normalized = item.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_hashes.append(normalized)
+    return unique_hashes
 
 
 async def _generate_general_chat_response(
@@ -109,6 +157,8 @@ async def _generate_general_chat_response(
         "You are SecureMail Assistant. Help the user with practical cybersecurity guidance. "
         "If asked about data summary, suggest using KPI/risk summary requests. "
         "If asked about scanning, remind them .eml upload is in /scanner. "
+        "When user asks for evidence or proof, provide concrete indicators (exact URL, hash, auth result, risk score) from available context. "
+        "If concrete evidence is not available in context, say so clearly and do not invent details. "
         "Be concise and actionable.\n\n"
         f"Recent conversation:\n{chr(10).join(history_messages) if history_messages else 'No previous messages.'}\n\n"
         f"User message: {user_message}\n"
@@ -173,6 +223,8 @@ async def _stream_general_chat_response(
         "You are SecureMail Assistant. Help the user with practical cybersecurity guidance. "
         "If asked about data summary, suggest using KPI/risk summary requests. "
         "If asked about scanning, remind them .eml upload is in /scanner. "
+        "When user asks for evidence or proof, provide concrete indicators (exact URL, hash, auth result, risk score) from available context. "
+        "If concrete evidence is not available in context, say so clearly and do not invent details. "
         "Be concise and actionable.\n\n"
         f"Recent conversation:\n{chr(10).join(history_messages) if history_messages else 'No previous messages.'}\n\n"
         f"User message: {user_message}\n"
@@ -468,6 +520,53 @@ async def scan_email(request: ScanRequest, session: AsyncSession = Depends(get_d
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.post("/api/v1/scan-batch", response_model=ScanBatchResponse)
+async def scan_email_batch(request: ScanBatchRequest, session: AsyncSession = Depends(get_db_session)) -> ScanBatchResponse:
+    settings = get_settings()
+    deps = _build_pipeline_dependencies(settings)
+
+    items: list[ScanBatchItemResult] = []
+    succeeded = 0
+    failed = 0
+
+    for idx, item in enumerate(request.items):
+        try:
+            result = await execute_pipeline(
+                email_path=item.email_path,
+                session=session,
+                deps=deps,
+                user_accepts_danger=item.user_accepts_danger,
+            )
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=item.email_path,
+                    success=True,
+                    result=result,
+                )
+            )
+            succeeded += 1
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=item.email_path,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            failed += 1
+            if not request.continue_on_error:
+                break
+
+    return ScanBatchResponse(
+        total=len(request.items),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
+
+
 @app.post("/api/v1/scan-llm", response_model=ScanResponse)
 async def scan_email_llm(request: ScanRequest, session: AsyncSession = Depends(get_db_session)) -> ScanResponse:
     """LLM-based orchestrator: Deep-dive analysis with detailed threat reasoning."""
@@ -486,6 +585,52 @@ async def scan_email_llm(request: ScanRequest, session: AsyncSession = Depends(g
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/scan-llm-batch", response_model=ScanBatchResponse)
+async def scan_email_llm_batch(request: ScanBatchRequest, session: AsyncSession = Depends(get_db_session)) -> ScanBatchResponse:
+    settings = get_settings()
+
+    items: list[ScanBatchItemResult] = []
+    succeeded = 0
+    failed = 0
+
+    for idx, item in enumerate(request.items):
+        try:
+            result = await execute_pipeline_deepdive(
+                email_path=item.email_path,
+                session=session,
+                settings=settings,
+                user_accepts_danger=item.user_accepts_danger,
+            )
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=item.email_path,
+                    success=True,
+                    result=result,
+                )
+            )
+            succeeded += 1
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=item.email_path,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            failed += 1
+            if not request.continue_on_error:
+                break
+
+    return ScanBatchResponse(
+        total=len(request.items),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
 
 
 @app.post("/api/v1/scan-google-aistudio", response_model=ScanResponse)
@@ -545,6 +690,67 @@ async def scan_uploaded_email(
             os.unlink(temp_path)
 
 
+@app.post("/api/v1/scan-upload-batch", response_model=ScanBatchResponse)
+async def scan_uploaded_email_batch(
+    files: list[UploadFile] = File(...),
+    user_accepts_danger: bool = Form(False),
+    continue_on_error: bool = Form(True),
+    session: AsyncSession = Depends(get_db_session),
+) -> ScanBatchResponse:
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one .eml file is required")
+
+    settings = get_settings()
+    deps = _build_pipeline_dependencies(settings)
+
+    items: list[ScanBatchItemResult] = []
+    succeeded = 0
+    failed = 0
+
+    for idx, upload in enumerate(files):
+        file_label = upload.filename or f"uploaded-{idx + 1}.eml"
+        temp_path: str | None = None
+        try:
+            _, temp_path = await _save_uploaded_eml_to_temp(upload)
+            result = await execute_pipeline(
+                email_path=temp_path,
+                session=session,
+                deps=deps,
+                user_accepts_danger=user_accepts_danger,
+            )
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=file_label,
+                    success=True,
+                    result=result,
+                )
+            )
+            succeeded += 1
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=file_label,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            failed += 1
+            if not continue_on_error:
+                break
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    return ScanBatchResponse(
+        total=len(files),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
+
+
 @app.post("/api/v1/scan-upload-llm", response_model=ScanResponse)
 async def scan_uploaded_email_llm(
     file: UploadFile = File(...),
@@ -570,6 +776,66 @@ async def scan_uploaded_email_llm(
     finally:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
+
+
+@app.post("/api/v1/scan-upload-llm-batch", response_model=ScanBatchResponse)
+async def scan_uploaded_email_llm_batch(
+    files: list[UploadFile] = File(...),
+    user_accepts_danger: bool = Form(False),
+    continue_on_error: bool = Form(True),
+    session: AsyncSession = Depends(get_db_session),
+) -> ScanBatchResponse:
+    if not files:
+        raise HTTPException(status_code=422, detail="At least one .eml file is required")
+
+    settings = get_settings()
+
+    items: list[ScanBatchItemResult] = []
+    succeeded = 0
+    failed = 0
+
+    for idx, upload in enumerate(files):
+        file_label = upload.filename or f"uploaded-{idx + 1}.eml"
+        temp_path: str | None = None
+        try:
+            _, temp_path = await _save_uploaded_eml_to_temp(upload)
+            result = await execute_pipeline_deepdive(
+                email_path=temp_path,
+                session=session,
+                settings=settings,
+                user_accepts_danger=user_accepts_danger,
+            )
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=file_label,
+                    success=True,
+                    result=result,
+                )
+            )
+            succeeded += 1
+        except (FileNotFoundError, ValueError, RuntimeError) as exc:
+            items.append(
+                ScanBatchItemResult(
+                    index=idx,
+                    email_path=file_label,
+                    success=False,
+                    error=str(exc),
+                )
+            )
+            failed += 1
+            if not continue_on_error:
+                break
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    return ScanBatchResponse(
+        total=len(files),
+        succeeded=succeeded,
+        failed=failed,
+        items=items,
+    )
 
 
 @app.get("/quick-check", response_class=HTMLResponse)
@@ -1078,6 +1344,9 @@ async def upload_chat_eml(
     session.add(user_message)
     await session.flush()
 
+    evidence_urls = _extract_scan_evidence_urls(scan_result)
+    evidence_hashes = _extract_scan_evidence_hashes(scan_result)
+
     trace_payload = {
         "scan_mode": mode,
         "file_name": filename,
@@ -1092,6 +1361,8 @@ async def upload_chat_eml(
         "ai_provider": scan_result.ai_provider,
         "ai_confidence_percent": scan_result.ai_confidence_percent,
         "execution_logs": scan_result.execution_logs,
+        "evidence_urls": evidence_urls,
+        "evidence_hashes": evidence_hashes,
         "ai_cot_steps": scan_result.ai_cot_steps,
         "tool_trace": _sanitize_tool_trace(scan_result.ai_tool_trace),
     }
@@ -1101,6 +1372,12 @@ async def upload_chat_eml(
         f"Status: {scan_result.final_status}",
         f"Issues detected: {scan_result.issue_count}",
     ]
+    if scan_result.termination_reason:
+        assistant_lines.append(f"Termination reason: {scan_result.termination_reason}")
+    if evidence_urls:
+        assistant_lines.append(f"Evidence URLs: {', '.join(evidence_urls[:5])}")
+    if evidence_hashes:
+        assistant_lines.append(f"Evidence attachment hashes: {', '.join(evidence_hashes[:5])}")
     if scan_result.ai_reason:
         assistant_lines.append(f"Reason: {scan_result.ai_reason}")
     if scan_result.ai_confidence_percent is not None:

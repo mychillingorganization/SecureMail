@@ -8,6 +8,11 @@ class ScanRequest(BaseModel):
     user_accepts_danger: bool = False
 
 
+class ScanBatchRequest(BaseModel):
+    items: list[ScanRequest] = Field(min_length=1, max_length=50)
+    continue_on_error: bool = True
+
+
 class ScanResponse(BaseModel):
     final_status: str
     issue_count: int
@@ -20,6 +25,21 @@ class ScanResponse(BaseModel):
     ai_confidence_percent: int | None = None
     ai_cot_steps: list[str] = Field(default_factory=list)
     ai_tool_trace: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ScanBatchItemResult(BaseModel):
+    index: int
+    email_path: str
+    success: bool
+    result: ScanResponse | None = None
+    error: str | None = None
+
+
+class ScanBatchResponse(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    items: list[ScanBatchItemResult]
 
 
 class ScanHistoryCreate(BaseModel):
