@@ -35,8 +35,8 @@
                                (Redis pub/sub)
 
 Cách cài đặt và chạy ứng dụng (Quick Start):
-- Lệnh để build Docker image (như trong task 1.1 yêu cầu): docker build -t email-agent .
-- Khi đã báo chữ FINISHED ở bước build trên, bạn chạy container bằng lệnh sau: docker run -d -p 8000:8000 --name email_agent_container email-agent
+- Lệnh để build Docker image (như trong task 1.1 yêu cầu): docker build -t email-module .
+- Khi đã báo chữ FINISHED ở bước build trên, bạn chạy container bằng lệnh sau: docker run -d -p 8000:8000 --name email_module_container email-module
 
 Task 1.1:
 Hướng dẫn kiểm tra (Testing/Verification):
@@ -45,7 +45,7 @@ Hướng dẫn kiểm tra (Testing/Verification):
 
 Task 1.2:
 - Đảm bảo bạn đã vào thư mục SecureMail: cd SecureMail
-- Chạy lệnh thực thi kiểm thử: python -m unittest email_agent.tests.test_protocol
+- Chạy lệnh thực thi kiểm thử: python -m unittest email_module.tests.test_protocol
   + Nếu mọi thứ tốt đẹp, màn hình Terminal sẽ in ra 16 dấu chấm ................ và cuối cùng là chữ OK. 
 
 Task 1.4:

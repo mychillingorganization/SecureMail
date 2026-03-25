@@ -7,12 +7,12 @@ import sys
 from pathlib import Path
 
 # When running as a script directly (python run_protocol_verifier.py),
-# add the project root to sys.path so 'email_agent' package can be found.
+# add the project root to sys.path so 'email_module' package can be found.
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from email_agent.protocol_verifier import ProtocolVerifier
+from email_module.protocol_verifier import ProtocolVerifier
 
 # Force UTF-8 output encoding for proper Vietnamese character display
 if sys.stdout.encoding != "utf-8":
@@ -28,7 +28,7 @@ logging.basicConfig(
 # Suppress debug logs from sub-libraries  
 logging.getLogger("dkimpy").setLevel(logging.CRITICAL)
 logging.getLogger("checkdmarc").setLevel(logging.WARNING)
-logging.getLogger("email_agent.protocol_verifier").setLevel(logging.WARNING)
+logging.getLogger("email_module.protocol_verifier").setLevel(logging.WARNING)
 
 
 def parse_args() -> argparse.Namespace:

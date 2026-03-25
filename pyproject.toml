@@ -36,7 +36,7 @@ ignore = ["E501"]
 python_version = "3.11"
 
 # Resolve modules from explicit package roots to avoid collisions like
-# email_agent/tests and orchestra/tests both mapping to top-level "tests".
+# email_module/tests and orchestra/tests both mapping to top-level "tests".
 explicit_package_bases = true
 namespace_packages = true
 

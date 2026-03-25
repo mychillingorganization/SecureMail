@@ -9,7 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from email_agent.protocol_verifier import ProtocolVerifier
+from email_module.protocol_verifier import ProtocolVerifier
 from orchestra.clients import AgentClient
 from orchestra.config import Settings
 from orchestra.early_termination import should_terminate

@@ -19,7 +19,7 @@ import httpx
 from sqlalchemy import Text, cast, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from email_agent.protocol_verifier import ProtocolVerifier
+from email_module.protocol_verifier import ProtocolVerifier
 from orchestra.chat_tools import detect_chat_intent as detect_chat_intent_helper, run_tool, summarize_tool_result
 from orchestra.clients import AgentClient
 from orchestra.config import get_settings

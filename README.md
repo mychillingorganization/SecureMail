@@ -32,7 +32,7 @@ SecureMail/
 │   ├── models.py        (compat wrapper -> src/db/models.py)
 │   ├── database.py      (compat wrapper -> src/db/database.py)
 │   └── db_utils.py      (compat wrapper -> src/db/db_utils.py)
-├── email_agent/
+├── email_module/
 │   ├── main.py
 │   └── models/
 │       ├── svm_model.pkl
@@ -66,7 +66,7 @@ SecureMail/
 ## Model Ownership Rule
 
 Each agent stores its own inference artifacts:
-- `email_agent/models/`
+- `email_module/models/`
 - `web_module/models/`
 - `file_module/file_module/models/`
 
