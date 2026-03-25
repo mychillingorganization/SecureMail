@@ -8,7 +8,6 @@ returns a structured dict — never raises on malformed input.
 import logging
 import os
 from pathlib import Path
-from pathlib import Path
 
 import xgboost as xgb
 
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Resolve model path relative to this module's directory, with env override
 _module_dir = Path(__file__).parent.resolve()
-_default_model = _module_dir / "xgboost_phishing_model.json"
+_default_model = _module_dir / "models" / "xgboost_phishing_model.json"
 MODEL_PATH = os.getenv("MODEL_PATH", str(_default_model))
 
 

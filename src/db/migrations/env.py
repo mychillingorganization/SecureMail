@@ -5,11 +5,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from orchestra.config import get_settings
-from orchestra.models import Base
+from src.db.config import get_db_settings
+from src.db.models import Base
 
 config = context.config
-settings = get_settings()
+settings = get_db_settings()
 
 # Convert async database URL to synchronous for migrations
 db_url = settings.database_url
