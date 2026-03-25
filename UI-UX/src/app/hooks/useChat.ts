@@ -5,6 +5,7 @@ import {
   fetchChatConversations,
   fetchChatMessages,
   sendChatMessage,
+  sendChatMessageStream,
   uploadChatFile,
   uploadChatEml,
   type ChatConversation,
@@ -12,6 +13,36 @@ import {
 } from "../api/chat";
 
 type ContextMode = "general" | "scan";
+
+const ACTIVE_CONVERSATION_STORAGE_KEY = "securemail.chat.activeConversationId";
+
+
+function readStoredActiveConversationId(): string | null {
+  if (typeof window === "undefined") return null;
+  const value = window.sessionStorage.getItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+  return value && value.trim().length > 0 ? value : null;
+}
+
+
+function writeStoredActiveConversationId(value: string | null): void {
+  if (typeof window === "undefined") return;
+  if (value) {
+    window.sessionStorage.setItem(ACTIVE_CONVERSATION_STORAGE_KEY, value);
+  } else {
+    window.sessionStorage.removeItem(ACTIVE_CONVERSATION_STORAGE_KEY);
+  }
+}
+
+function isNotFoundError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("404") || msg.includes("not found");
+}
+
+function isStreamTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.message.toLowerCase().includes("streaming request timed out");
+}
 
 function createLocalMessage(
   conversationId: string,
@@ -34,7 +65,9 @@ function createLocalMessage(
 export function useChat() {
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [messagesByConversation, setMessagesByConversation] = useState<Record<string, ChatMessage[]>>({});
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationIdState] = useState<string | null>(() =>
+    readStoredActiveConversationId(),
+  );
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isUploadingEml, setIsUploadingEml] = useState(false);
@@ -44,6 +77,11 @@ export function useChat() {
     if (!activeConversationId) return [];
     return messagesByConversation[activeConversationId] ?? [];
   }, [activeConversationId, messagesByConversation]);
+
+  const setActiveConversationId = useCallback((value: string | null) => {
+    setActiveConversationIdState(value);
+    writeStoredActiveConversationId(value);
+  }, []);
 
   const loadConversations = useCallback(async () => {
     setIsLoadingConversations(true);
@@ -129,6 +167,53 @@ export function useChat() {
       let conversationId = activeConversationId;
       let localUserId: string | null = null;
       let localAssistantId: string | null = null;
+      let pendingStreamChars = "";
+      let typingInterval: ReturnType<typeof setInterval> | null = null;
+
+      const stopTyping = () => {
+        if (typingInterval) {
+          clearInterval(typingInterval);
+          typingInterval = null;
+        }
+      };
+
+      const appendAssistantChar = (char: string, cid: string) => {
+        if (!localAssistantId || !char) return;
+        setMessagesByConversation((prev) => ({
+          ...prev,
+          [cid]: (prev[cid] ?? []).map((item) =>
+            item.id === localAssistantId
+              ? {
+                  ...item,
+                  content: `${item.content}${char}`,
+                }
+              : item,
+          ),
+        }));
+      };
+
+      const ensureTyping = (cid: string) => {
+        if (typingInterval) return;
+        typingInterval = setInterval(() => {
+          if (!pendingStreamChars) {
+            stopTyping();
+            return;
+          }
+
+          const nextChar = pendingStreamChars[0];
+          pendingStreamChars = pendingStreamChars.slice(1);
+          appendAssistantChar(nextChar, cid);
+        }, 12);
+      };
+
+      const waitForPendingChars = async () => {
+        const maxWaitMs = 8000;
+        const start = Date.now();
+        while (pendingStreamChars.length > 0 && Date.now() - start < maxWaitMs) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      };
+
       try {
         if (!conversationId) {
           const created = await createChatConversation();
@@ -159,33 +244,100 @@ export function useChat() {
           [cid]: [...(prev[cid] ?? []), localUser, localAssistant],
         }));
 
-        const payload = await sendChatMessage({
-          message: text,
-          conversation_id: cid,
-          context_mode: contextMode,
-        });
+        let streamConversationId = cid;
+        let streamUserMessage: ChatMessage | null = null;
+        let streamAssistantMessage: ChatMessage | null = null;
 
-        const returnedConversationId = payload.conversation.id;
+        try {
+          await sendChatMessageStream(
+            {
+              message: text,
+              conversation_id: cid,
+              context_mode: contextMode,
+            },
+            {
+              onStart: (payload) => {
+                streamConversationId = payload.conversation.id;
+                streamUserMessage = payload.user_message;
 
-        setConversations((prev) => {
-          const withoutExisting = prev.filter((item) => item.id !== returnedConversationId);
-          return [payload.conversation, ...withoutExisting];
-        });
+                setConversations((prev) => {
+                  const withoutExisting = prev.filter((item) => item.id !== payload.conversation.id);
+                  return [payload.conversation, ...withoutExisting];
+                });
+
+                setActiveConversationId(payload.conversation.id);
+              },
+              onChunk: (delta) => {
+                if (!delta) return;
+                pendingStreamChars += delta;
+                ensureTyping(streamConversationId);
+              },
+              onDone: (payload) => {
+                streamConversationId = payload.conversation.id;
+                streamAssistantMessage = payload.assistant_message;
+
+                setConversations((prev) => {
+                  const withoutExisting = prev.filter((item) => item.id !== payload.conversation.id);
+                  return [payload.conversation, ...withoutExisting];
+                });
+
+                setActiveConversationId(payload.conversation.id);
+              },
+            },
+          );
+        } catch (streamErr) {
+          if (!isNotFoundError(streamErr) && !isStreamTimeoutError(streamErr)) {
+            throw streamErr;
+          }
+
+          const payload = await sendChatMessage({
+            message: text,
+            conversation_id: cid,
+            context_mode: contextMode,
+          });
+
+          streamConversationId = payload.conversation.id;
+          streamUserMessage = payload.user_message;
+          streamAssistantMessage = payload.assistant_message;
+
+          setConversations((prev) => {
+            const withoutExisting = prev.filter((item) => item.id !== payload.conversation.id);
+            return [payload.conversation, ...withoutExisting];
+          });
+
+          setActiveConversationId(payload.conversation.id);
+        }
+
+        const assistantFinal = streamAssistantMessage;
+        if (!assistantFinal) {
+          throw new Error("Streaming response ended without assistant message");
+        }
+
+        await waitForPendingChars();
+
+        stopTyping();
+        pendingStreamChars = "";
+
+        const userFinal =
+          streamUserMessage ??
+          createLocalMessage(streamConversationId, "user", text, "sent");
 
         setMessagesByConversation((prev) => ({
           ...prev,
-          [returnedConversationId]: [
-            ...(prev[returnedConversationId] ?? []).filter(
+          [streamConversationId]: [
+            ...(prev[streamConversationId] ?? []).filter(
               (item) => item.id !== localUserId && item.id !== localAssistantId,
             ),
-            payload.user_message,
-            payload.assistant_message,
+            userFinal,
+            assistantFinal,
           ],
         }));
 
-        setActiveConversationId(returnedConversationId);
+        setActiveConversationId(streamConversationId);
         setError(null);
       } catch (err) {
+        stopTyping();
+        pendingStreamChars = "";
         const detail = err instanceof Error ? err.message : "Failed to send message";
         setError(detail);
 
@@ -205,6 +357,7 @@ export function useChat() {
           }));
         }
       } finally {
+        stopTyping();
         setIsSending(false);
       }
     },

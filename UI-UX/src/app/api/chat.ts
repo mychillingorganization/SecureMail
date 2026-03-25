@@ -34,7 +34,33 @@ export type ChatIntentResponse = {
   reason: string;
 };
 
+export type ChatStreamStartPayload = {
+  conversation: ChatConversation;
+  user_message: ChatMessage;
+};
+
+export type ChatStreamDonePayload = {
+  conversation: ChatConversation;
+  assistant_message: ChatMessage;
+};
+
+type ChatStreamHandlers = {
+  onStart?: (payload: ChatStreamStartPayload) => void;
+  onChunk?: (delta: string) => void;
+  onDone?: (payload: ChatStreamDonePayload) => void;
+};
+
 const API_BASE_URL = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || "http://localhost:8080";
+
+function resolveStreamTimeoutMs(): number {
+  const raw = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_CHAT_STREAM_TIMEOUT_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  // Default to 10 minutes for slow tool/model paths.
+  return 600000;
+}
 
 async function withTimeoutFetch(input: string, init: RequestInit, timeoutMs: number = 30000) {
   const controller = new AbortController();
@@ -108,6 +134,99 @@ export async function sendChatMessage(data: {
   }, 120000);
 
   return (await response.json()) as ChatSendResponse;
+}
+
+export async function sendChatMessageStream(
+  data: {
+    message: string;
+    conversation_id?: string | null;
+    context_mode?: "general" | "scan";
+  },
+  handlers: ChatStreamHandlers = {},
+): Promise<void> {
+  const controller = new AbortController();
+  const timeoutMs = resolveStreamTimeoutMs();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/chat/send-stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        detail = payload?.detail ?? detail;
+      } catch {
+        // Keep default detail.
+      }
+      throw new Error(detail);
+    }
+
+    if (!response.body) {
+      throw new Error("Streaming response has no body");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split("\n\n");
+      buffer = events.pop() ?? "";
+
+      for (const eventBlock of events) {
+        const lines = eventBlock
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0);
+
+        const eventLine = lines.find((line) => line.startsWith("event:"));
+        const dataLine = lines.find((line) => line.startsWith("data:"));
+        if (!dataLine) continue;
+
+        const eventName = eventLine ? eventLine.slice(6).trim() : "message";
+        const jsonText = dataLine.slice(5).trim();
+        if (!jsonText) continue;
+
+        let payload: unknown;
+        try {
+          payload = JSON.parse(jsonText);
+        } catch {
+          continue;
+        }
+
+        if (eventName === "start" && handlers.onStart && payload && typeof payload === "object") {
+          handlers.onStart(payload as ChatStreamStartPayload);
+        } else if (eventName === "chunk" && handlers.onChunk && payload && typeof payload === "object") {
+          const delta = (payload as { delta?: unknown }).delta;
+          if (typeof delta === "string") {
+            handlers.onChunk(delta);
+          }
+        } else if (eventName === "done" && handlers.onDone && payload && typeof payload === "object") {
+          handlers.onDone(payload as ChatStreamDonePayload);
+        }
+      }
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(`Streaming request timed out after ${Math.ceil(timeoutMs / 1000)}s. Please try again.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function detectChatIntent(data: {

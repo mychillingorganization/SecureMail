@@ -8,11 +8,12 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
 from pathlib import Path
+from typing import AsyncIterator
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 import httpx
 from sqlalchemy import Text, cast, delete, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,16 +128,155 @@ async def _generate_general_chat_response(
         response.raise_for_status()
         body = response.json()
 
-    candidates = body.get("candidates", []) if isinstance(body, dict) else []
-    if not candidates:
-        raise RuntimeError("No response candidates from model")
-
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text_chunks = [str(part.get("text", "")).strip() for part in parts if isinstance(part, dict)]
-    text = "\n".join([chunk for chunk in text_chunks if chunk]).strip()
+    text = _extract_text_from_generate_response(body)
     if not text:
         raise RuntimeError("Model returned empty text")
     return text
+
+
+def _extract_text_from_generate_response(body: object) -> str:
+    candidates = body.get("candidates", []) if isinstance(body, dict) else []
+    if not isinstance(candidates, list) or not candidates:
+        return ""
+
+    first = candidates[0]
+    if not isinstance(first, dict):
+        return ""
+
+    content = first.get("content")
+    if not isinstance(content, dict):
+        return ""
+
+    parts = content.get("parts", [])
+    if not isinstance(parts, list):
+        return ""
+
+    text_chunks = [str(part.get("text", "")) for part in parts if isinstance(part, dict)]
+    text = "\n".join([chunk for chunk in text_chunks if chunk]).strip()
+    return text
+
+
+async def _stream_general_chat_response(
+    settings_obj,
+    user_message: str,
+    history_messages: list[str],
+) -> AsyncIterator[str]:
+    api_key = settings_obj.google_ai_studio_api_key
+    if not api_key:
+        raise RuntimeError("Google AI Studio API key is not configured")
+
+    base_url = settings_obj.google_ai_studio_base_url.rstrip("/")
+    model = settings_obj.google_ai_studio_model
+    url = f"{base_url}/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+
+    prompt = (
+        "You are SecureMail Assistant. Help the user with practical cybersecurity guidance. "
+        "If asked about data summary, suggest using KPI/risk summary requests. "
+        "If asked about scanning, remind them .eml upload is in /scanner. "
+        "Be concise and actionable.\n\n"
+        f"Recent conversation:\n{chr(10).join(history_messages) if history_messages else 'No previous messages.'}\n\n"
+        f"User message: {user_message}\n"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 600,
+            "topP": 0.9,
+        },
+    }
+
+    timeout = httpx.Timeout(settings_obj.ai_agent_timeout_seconds)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async with client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                if not line.startswith("data:"):
+                    continue
+
+                data = line[5:].strip()
+                if not data:
+                    continue
+
+                try:
+                    body = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+
+                text = _extract_text_from_generate_response(body)
+                if text:
+                    yield text
+
+
+def _sse_event(event: str, data: dict[str, object]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _resolve_assistant_text(
+    *,
+    message_text: str,
+    conversation_id: str,
+    session: AsyncSession,
+    settings_obj,
+) -> tuple[str, str | None, dict[str, object] | None]:
+    tool_name: str | None = None
+    tool_payload: dict[str, object] | None = None
+
+    intent = detect_chat_intent_helper(message_text)
+    maybe_tool = intent.get("detected_tool")
+    if isinstance(maybe_tool, str):
+        tool_name = maybe_tool
+
+    lower_message = message_text.lower()
+    history_stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(10)
+    )
+    history_records = (await session.execute(history_stmt)).scalars().all()
+    history_lines = [
+        f"{(msg.role.value if hasattr(msg.role, 'value') else msg.role)}: {msg.content}"
+        for msg in reversed(history_records)
+    ]
+
+    if "select " in lower_message or "drop table" in lower_message or "update " in lower_message:
+        return (
+            "I can not execute raw SQL. Please ask for a summary like KPI trends, risky senders/domains, "
+            "file risk, URL threat, or AI confidence.",
+            None,
+            None,
+        )
+
+    if tool_name:
+        try:
+            tool_payload = await run_tool(tool_name, session, message_text, settings_obj)
+            return summarize_tool_result(tool_name, tool_payload), tool_name, tool_payload
+        except Exception as exc:
+            return f"I could not complete that summary request: {str(exc)}", None, None
+
+    if any(token in lower_message for token in [".eml", "upload email", "check email", "scan email", "scan eml"]):
+        return (
+            "Yes, you can upload an .eml file for scanning from the Check Email page (/scanner). "
+            "Use Rule-Based or LLM Deep Dive mode, then I can help summarize the results here in chat.",
+            None,
+            None,
+        )
+
+    try:
+        text = await _generate_general_chat_response(settings_obj, message_text, history_lines)
+        return text, None, None
+    except Exception:
+        return (
+            "I can help with security guidance and summaries. "
+            "Try asking for KPI summary, risky senders/domains, file risk, URL threat, or AI confidence trends.",
+            None,
+            None,
+        )
 
 
 def _to_chat_conversation_response(conversation: ChatConversation) -> ChatConversationResponse:
@@ -640,7 +780,9 @@ async def delete_chat_conversation(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    await session.delete(conversation)
+    # Use direct SQL deletes to avoid slow ORM cascade loads for large threads.
+    await session.execute(delete(ChatMessage).where(ChatMessage.conversation_id == conversation_id))
+    await session.execute(delete(ChatConversation).where(ChatConversation.id == conversation_id))
     await session.commit()
     return {"deleted": True, "conversation_id": conversation_id}
 
@@ -702,49 +844,12 @@ async def send_chat_message(
     session.add(user_message)
     await session.flush()
 
-    intent = detect_chat_intent_helper(message_text)
-    tool_name = intent.get("detected_tool") if isinstance(intent.get("detected_tool"), str) else None
-    tool_payload = None
-    lower_message = message_text.lower()
-
-    history_stmt = (
-        select(ChatMessage)
-        .where(ChatMessage.conversation_id == conversation.id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(10)
+    assistant_text, tool_name, tool_payload = await _resolve_assistant_text(
+        message_text=message_text,
+        conversation_id=conversation.id,
+        session=session,
+        settings_obj=settings,
     )
-    history_records = (await session.execute(history_stmt)).scalars().all()
-    history_lines = [
-        f"{(msg.role.value if hasattr(msg.role, 'value') else msg.role)}: {msg.content}"
-        for msg in reversed(history_records)
-    ]
-
-    if "select " in lower_message or "drop table" in lower_message or "update " in lower_message:
-        assistant_text = (
-            "I can not execute raw SQL. Please ask for a summary like KPI trends, risky senders/domains, "
-            "file risk, URL threat, or AI confidence."
-        )
-    elif tool_name:
-        try:
-            tool_payload = await run_tool(tool_name, session, message_text, settings)
-            assistant_text = summarize_tool_result(tool_name, tool_payload)
-        except Exception as exc:
-            assistant_text = f"I could not complete that summary request: {str(exc)}"
-            tool_name = None
-            tool_payload = None
-    elif any(token in lower_message for token in [".eml", "upload email", "check email", "scan email", "scan eml"]):
-        assistant_text = (
-            "Yes, you can upload an .eml file for scanning from the Check Email page (/scanner). "
-            "Use Rule-Based or LLM Deep Dive mode, then I can help summarize the results here in chat."
-        )
-    else:
-        try:
-            assistant_text = await _generate_general_chat_response(settings, message_text, history_lines)
-        except Exception:
-            assistant_text = (
-                "I can help with security guidance and summaries. "
-                "Try asking for KPI summary, risky senders/domains, file risk, URL threat, or AI confidence trends."
-            )
 
     assistant_message = ChatMessage(
         conversation_id=conversation.id,
@@ -769,6 +874,137 @@ async def send_chat_message(
         user_message=_to_chat_message_response(user_message),
         assistant_message=_to_chat_message_response(assistant_message),
     )
+
+
+@app.post("/api/v1/chat/send-stream")
+async def send_chat_message_stream(
+    request: ChatSendRequest,
+    session: AsyncSession = Depends(get_db_session),
+) -> StreamingResponse:
+    message_text = request.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+
+    await _apply_chat_retention(session, days=30)
+
+    conversation: ChatConversation | None = None
+    if request.conversation_id:
+        conversation = await session.get(ChatConversation, request.conversation_id)
+        if not conversation:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if conversation is None:
+        conversation = ChatConversation(title=_title_from_message(message_text))
+        session.add(conversation)
+        await session.flush()
+
+    user_message = ChatMessage(
+        conversation_id=conversation.id,
+        role=ChatRole.user,
+        content=message_text,
+        status="sent",
+    )
+    session.add(user_message)
+    await session.commit()
+    await session.refresh(conversation)
+    await session.refresh(user_message)
+
+    conversation_payload = _to_chat_conversation_response(conversation).model_dump()
+    user_payload = _to_chat_message_response(user_message).model_dump()
+
+    async def event_stream():
+        yield _sse_event(
+            "start",
+            {
+                "conversation": conversation_payload,
+                "user_message": user_payload,
+            },
+        )
+
+        tool_name: str | None = None
+        tool_payload: dict[str, object] | None = None
+        assistant_text = ""
+
+        lower_message = message_text.lower()
+        intent = detect_chat_intent_helper(message_text)
+        maybe_tool = intent.get("detected_tool")
+        if isinstance(maybe_tool, str):
+            tool_name = maybe_tool
+
+        history_stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == conversation.id)
+            .order_by(ChatMessage.created_at.desc())
+            .limit(10)
+        )
+        history_records = (await session.execute(history_stmt)).scalars().all()
+        history_lines = [
+            f"{(msg.role.value if hasattr(msg.role, 'value') else msg.role)}: {msg.content}"
+            for msg in reversed(history_records)
+        ]
+
+        if "select " in lower_message or "drop table" in lower_message or "update " in lower_message:
+            assistant_text = (
+                "I can not execute raw SQL. Please ask for a summary like KPI trends, risky senders/domains, "
+                "file risk, URL threat, or AI confidence."
+            )
+            yield _sse_event("chunk", {"delta": assistant_text})
+        elif tool_name:
+            try:
+                tool_payload = await run_tool(tool_name, session, message_text, settings)
+                assistant_text = summarize_tool_result(tool_name, tool_payload)
+            except Exception as exc:
+                tool_name = None
+                tool_payload = None
+                assistant_text = f"I could not complete that summary request: {str(exc)}"
+            yield _sse_event("chunk", {"delta": assistant_text})
+        elif any(token in lower_message for token in [".eml", "upload email", "check email", "scan email", "scan eml"]):
+            assistant_text = (
+                "Yes, you can upload an .eml file for scanning from the Check Email page (/scanner). "
+                "Use Rule-Based or LLM Deep Dive mode, then I can help summarize the results here in chat."
+            )
+            yield _sse_event("chunk", {"delta": assistant_text})
+        else:
+            try:
+                async for delta in _stream_general_chat_response(settings, message_text, history_lines):
+                    if not delta:
+                        continue
+                    assistant_text += delta
+                    yield _sse_event("chunk", {"delta": delta})
+            except Exception:
+                assistant_text = (
+                    "I can help with security guidance and summaries. "
+                    "Try asking for KPI summary, risky senders/domains, file risk, URL threat, or AI confidence trends."
+                )
+                yield _sse_event("chunk", {"delta": assistant_text})
+
+        assistant_message = ChatMessage(
+            conversation_id=conversation.id,
+            role=ChatRole.assistant,
+            content=assistant_text,
+            status="sent",
+            tool_name=tool_name,
+            tool_payload=tool_payload,
+        )
+        session.add(assistant_message)
+        conversation.updated_at = datetime.utcnow()
+        conversation.last_message_at = conversation.updated_at
+        await session.commit()
+        await session.refresh(conversation)
+        await session.refresh(assistant_message)
+
+        assistant_payload = _to_chat_message_response(assistant_message).model_dump()
+        final_conversation_payload = _to_chat_conversation_response(conversation).model_dump()
+
+        yield _sse_event(
+            "done",
+            {
+                "conversation": final_conversation_payload,
+                "assistant_message": assistant_payload,
+            },
+        )
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/v1/chat/upload-eml", response_model=ChatSendResponse)
