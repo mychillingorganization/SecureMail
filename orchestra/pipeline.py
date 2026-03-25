@@ -56,6 +56,30 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _status_is_malicious(status: Any) -> bool:
+    if status is None:
+        return False
+    status_value = status.value if hasattr(status, "value") else str(status)
+    return str(status_value).lower() == "malicious"
+
+
+async def _is_file_hash_blacklisted_in_db(session: AsyncSession, file_hash: str) -> bool:
+    db_obj = await session.get(File, file_hash)
+    if db_obj is None:
+        db_obj = await session.get(File, file_hash.upper())
+    if db_obj is None:
+        return False
+    return bool(getattr(db_obj, "is_blacklisted", False))
+
+
+async def _is_url_hash_blacklisted_in_db(session: AsyncSession, raw_url: str) -> bool:
+    url_hash = _hash_url(raw_url)
+    db_obj = await session.get(Url, url_hash)
+    if db_obj is None:
+        return False
+    return bool(getattr(db_obj, "is_blacklisted", False))
+
+
 async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
     url_hash = _hash_url(raw_url)
     db_obj = await session.get(Url, url_hash)
@@ -118,21 +142,60 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
         else:
             # Step 3
             malicious_hash_detected = False
+            malicious_url_hash_detected = False
+
             for attachment in attachment_dir.iterdir():
                 if not attachment.is_file():
                     continue
                 attachment_hash = _hash_file(attachment)
                 attachment_hashes.append((attachment_hash, str(attachment)))
+
+                db_blacklisted = await _is_file_hash_blacklisted_in_db(session, attachment_hash)
+                if db_blacklisted:
+                    malicious_hash_detected = True
+                    termination_reason = f"Blacklisted file hash detected in DB: {attachment_hash}"
+                    logs.append(f"[HALT] Step 3: {termination_reason}")
+                    break
+
                 scan_result = deps.threat_scanner.scan_hash(attachment_hash)
                 if scan_result.verdict == "MALICIOUS":
                     malicious_hash_detected = True
                     termination_reason = f"Malicious file hash detected: {attachment_hash}"
                     logs.append(f"[HALT] Step 3: {termination_reason}")
                     break
+
             if not malicious_hash_detected:
                 logs.append("[INFO] Step 3: attachment hash triage - SAFE")
 
-            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=malicious_hash_detected, reason=termination_reason)
+            urls = sorted(parsed.urls)
+            if urls:
+                for raw_url in urls:
+                    db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
+                    if db_blacklisted:
+                        malicious_url_hash_detected = True
+                        termination_reason = f"Blacklisted URL hash detected in DB: {_hash_url(raw_url)}"
+                        logs.append(f"[HALT] Step 3: {termination_reason}")
+                        break
+
+                    url_hash = _hash_url(raw_url)
+                    scan_result = deps.threat_scanner.scan_hash(url_hash)
+                    if scan_result.verdict == "MALICIOUS":
+                        malicious_url_hash_detected = True
+                        termination_reason = f"Malicious URL hash detected: {url_hash}"
+                        logs.append(f"[HALT] Step 3: {termination_reason}")
+                        break
+
+                if not malicious_url_hash_detected:
+                    logs.append("[INFO] Step 3: URL hash triage - SAFE")
+            else:
+                logs.append("[INFO] Step 3: URL hash triage skipped - no URLs")
+
+            decision = should_terminate(
+                issue_count=issue_count,
+                auth_failed=False,
+                malicious_detected=(malicious_hash_detected or malicious_url_hash_detected),
+                reason=termination_reason,
+            )
 
             if not decision.halt:
                 # Step 4: Email Agent

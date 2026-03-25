@@ -92,6 +92,30 @@ def _verdict_type_from_status(status: str) -> VerdictType:
 	return VerdictType.safe
 
 
+def _status_is_malicious(status: Any) -> bool:
+	if status is None:
+		return False
+	status_value = status.value if hasattr(status, "value") else str(status)
+	return str(status_value).lower() == "malicious"
+
+
+async def _is_file_hash_blacklisted_in_db(session: AsyncSession, file_hash: str) -> bool:
+	db_obj = await session.get(File, file_hash)
+	if db_obj is None:
+		db_obj = await session.get(File, file_hash.upper())
+	if db_obj is None:
+		return False
+	return bool(getattr(db_obj, "is_blacklisted", False))
+
+
+async def _is_url_hash_blacklisted_in_db(session: AsyncSession, raw_url: str) -> bool:
+	url_hash = _hash_url(raw_url)
+	db_obj = await session.get(Url, url_hash)
+	if db_obj is None:
+		return False
+	return bool(getattr(db_obj, "is_blacklisted", False))
+
+
 async def _upsert_url(session: AsyncSession, raw_url: str, status: EntityStatus) -> str:
 	url_hash = _hash_url(raw_url)
 	db_obj = await session.get(Url, url_hash)
@@ -179,6 +203,13 @@ async def execute_pipeline_deepdive(
 					continue
 				attachment_hash = _hash_file(attachment)
 				attachment_hashes.append((attachment_hash, str(attachment)))
+				db_blacklisted = await _is_file_hash_blacklisted_in_db(session, attachment_hash)
+				if db_blacklisted:
+					malicious_hash_detected = True
+					termination_reason = f"Blacklisted file hash detected in DB: {attachment_hash}"
+					logs.append(f"[HALT] Step 3: {termination_reason}")
+					break
+
 				scan_result = deps.threat_scanner.scan_hash(attachment_hash)
 				if scan_result.verdict == "MALICIOUS":
 					malicious_hash_detected = True
@@ -191,6 +222,13 @@ async def execute_pipeline_deepdive(
 			urls = sorted(parsed.urls)
 			if urls:
 				for raw_url in urls:
+					db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
+					if db_blacklisted:
+						malicious_url_hash_detected = True
+						termination_reason = f"Blacklisted URL hash detected in DB: {_hash_url(raw_url)}"
+						logs.append(f"[HALT] Step 3: {termination_reason}")
+						break
+
 					url_hash = _hash_url(raw_url)
 					scan_result = deps.threat_scanner.scan_hash(url_hash)
 					if scan_result.verdict == "MALICIOUS":
