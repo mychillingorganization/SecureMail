@@ -26,6 +26,9 @@ FILE_AGENT_DANGEROUS_RISK_LEVELS = {"high", "critical"}
 # File agent labels that halt and escalate
 FILE_AGENT_MALICIOUS_LABELS = {"malicious", "phishing"}
 
+# File agent risk score threshold to increment issue_count (non-halting signal)
+FILE_RISK_SIGNAL_THRESHOLD = 0.4
+
 # ============================================================================
 # Web Agent Signal Thresholds
 # ============================================================================

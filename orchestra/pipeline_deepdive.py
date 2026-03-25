@@ -99,6 +99,36 @@ def _status_is_malicious(status: Any) -> bool:
 	return str(status_value).lower() == "malicious"
 
 
+def _collect_dangerous_urls_from_web_result(web_resp: dict[str, Any]) -> list[str]:
+	checks = web_resp.get("checks") if isinstance(web_resp, dict) else None
+	if not isinstance(checks, dict):
+		return []
+
+	url_analysis = checks.get("url_analysis")
+	if not isinstance(url_analysis, list):
+		return []
+
+	dangerous_urls: list[str] = []
+	for item in url_analysis:
+		if not isinstance(item, dict):
+			continue
+		label = str(item.get("label", "")).lower()
+		risk_score = float(item.get("risk_score", 0.0) or 0.0)
+		if label == "phishing" or risk_score >= thresholds.WEB_AGENT_SUSPICIOUS_THRESHOLD:
+			candidate = item.get("input_url") or item.get("url")
+			if isinstance(candidate, str) and candidate.strip():
+				dangerous_urls.append(candidate.strip())
+
+	seen: set[str] = set()
+	unique_urls: list[str] = []
+	for url in dangerous_urls:
+		if url in seen:
+			continue
+		seen.add(url)
+		unique_urls.append(url)
+	return unique_urls
+
+
 async def _is_file_hash_blacklisted_in_db(session: AsyncSession, file_hash: str) -> bool:
 	db_obj = await session.get(File, file_hash)
 	if db_obj is None:
@@ -207,6 +237,7 @@ async def execute_pipeline_deepdive(
 				if db_blacklisted:
 					malicious_hash_detected = True
 					termination_reason = f"Blacklisted file hash detected in DB: {attachment_hash}"
+					logs.append(f"[EVIDENCE] Step 3: dangerous_file_hashes={[attachment_hash]}")
 					logs.append(f"[HALT] Step 3: {termination_reason}")
 					break
 
@@ -214,6 +245,7 @@ async def execute_pipeline_deepdive(
 				if db_blacklisted:
 					malicious_hash_detected = True
 					termination_reason = f"Blacklisted file hash detected in DB: {attachment_hash}"
+					logs.append(f"[EVIDENCE] Step 3: dangerous_file_hashes={[attachment_hash]}")
 					logs.append(f"[HALT] Step 3: {termination_reason}")
 					break
 
@@ -221,6 +253,7 @@ async def execute_pipeline_deepdive(
 				if scan_result.verdict == "MALICIOUS":
 					malicious_hash_detected = True
 					termination_reason = f"Malicious file hash detected: {attachment_hash}"
+					logs.append(f"[EVIDENCE] Step 3: dangerous_file_hashes={[attachment_hash]}")
 					logs.append(f"[HALT] Step 3: {termination_reason}")
 					break
 			if not malicious_hash_detected:
@@ -232,14 +265,14 @@ async def execute_pipeline_deepdive(
 					db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
 					if db_blacklisted:
 						malicious_url_hash_detected = True
-						termination_reason = f"Blacklisted URL hash detected in DB: {_hash_url(raw_url)}"
+						termination_reason = f"Blacklisted URL detected in DB: {raw_url} (hash={_hash_url(raw_url)})"
 						logs.append(f"[HALT] Step 3: {termination_reason}")
 						break
 
 					db_blacklisted = await _is_url_hash_blacklisted_in_db(session, raw_url)
 					if db_blacklisted:
 						malicious_url_hash_detected = True
-						termination_reason = f"Blacklisted URL hash detected in DB: {_hash_url(raw_url)}"
+						termination_reason = f"Blacklisted URL detected in DB: {raw_url} (hash={_hash_url(raw_url)})"
 						logs.append(f"[HALT] Step 3: {termination_reason}")
 						break
 
@@ -299,7 +332,8 @@ async def execute_pipeline_deepdive(
 							file_risk_score = float(file_resp.get("risk_score", 0.0))
 
 							if file_label in thresholds.FILE_AGENT_MALICIOUS_LABELS or file_risk_level in thresholds.FILE_AGENT_DANGEROUS_RISK_LEVELS or file_risk_score >= thresholds.FILE_AGENT_MALICIOUS_RISK_SCORE:
-								termination_reason = f"FileAgent detected malicious attachment: {Path(path).name}"
+								termination_reason = f"FileAgent detected malicious attachment: {Path(path).name} (hash={file_hash})"
+								logs.append(f"[EVIDENCE] Step 5: dangerous_file_hashes={[file_hash]}")
 								logs.append(f"[HALT] Step 5: {termination_reason}")
 								decision = should_terminate(
 									issue_count=issue_count,
@@ -338,7 +372,12 @@ async def execute_pipeline_deepdive(
 						web_resp = await deps.web_client.analyze({"email_id": parsed.subject, "urls": urls})
 						web_label = str(web_resp.get("label", "safe")).lower()
 						if web_label in thresholds.WEB_AGENT_MALICIOUS_LABELS:
-							termination_reason = "WebAgent detected phishing URL"
+							dangerous_urls = _collect_dangerous_urls_from_web_result(web_resp)
+							if dangerous_urls:
+								termination_reason = f"WebAgent detected phishing URL(s): {', '.join(dangerous_urls[:3])}"
+								logs.append(f"[EVIDENCE] Step 6: dangerous_urls={dangerous_urls}")
+							else:
+								termination_reason = "WebAgent detected phishing URL"
 							logs.append(f"[HALT] Step 6: {termination_reason}")
 							decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
 						elif web_resp.get("risk_score", 0.0) >= thresholds.WEB_AGENT_SUSPICIOUS_THRESHOLD:
@@ -406,8 +445,10 @@ async def execute_pipeline_deepdive(
 		logs.append(f"[INFO] Step 7: LLM summary - {llm_result.get('summary', '')}")
 		if llm_result.get("classify"):
 			logs.append(f"[INFO] Step 7: classify={llm_result.get('classify')}")
-		if llm_result.get("reason"):
-			logs.append(f"[INFO] Step 7: reason={llm_result.get('reason')}")
+		summary_text = str(llm_result.get("summary", "")).strip()
+		reason_text = str(llm_result.get("reason", "")).strip()
+		if reason_text and reason_text != summary_text:
+			logs.append(f"[INFO] Step 7: reason={reason_text}")
 		if llm_result.get("risk_factors"):
 			logs.append(f"[INFO] Step 7: LLM risk factors - {', '.join(llm_result['risk_factors'])}")
 		if llm_result.get("danger_reasons"):
@@ -437,6 +478,13 @@ async def execute_pipeline_deepdive(
 			final_status = "DANGER"
 			termination_reason = llm_result.get("reason") or llm_result.get("summary") or "LLM deep-dive escalated the verdict"
 			logs.append(f"[HALT] Step 7: {termination_reason}")
+
+		if decision.halt or final_status == "DANGER":
+			logs.append(
+				"[REASONING] Termination summary: "
+				f"reason={termination_reason or decision.reason or 'policy halt'}, "
+				f"issue_count={issue_count}, auth_failed={auth_failed}, ai_classify={llm_result.get('classify')}"
+			)
 
 		logs.append(f"[INFO] Step 8: Final verdict = {final_status}")
 

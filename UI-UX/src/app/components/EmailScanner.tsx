@@ -25,6 +25,21 @@ type ScanResponse = {
   ai_cot_steps?: string[];
 };
 
+type ScanBatchItemResult = {
+  index: number;
+  email_path: string;
+  success: boolean;
+  result?: ScanResponse | null;
+  error?: string | null;
+};
+
+type ScanBatchResponse = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  items: ScanBatchItemResult[];
+};
+
 async function extractSenderReceiver(file: File): Promise<{ sender: string | null; receiver: string | null }> {
   try {
     const raw = await file.text();
@@ -39,10 +54,15 @@ async function extractSenderReceiver(file: File): Promise<{ sender: string | nul
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+const API_BASE_URL =
+  (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_API_BASE_URL || "http://localhost:8080";
 
 function isValidEml(file: File | null): file is File {
   return Boolean(file && file.name.toLowerCase().endsWith(".eml"));
+}
+
+function isValidEmlCandidate(file: File): boolean {
+  return file.name.toLowerCase().endsWith(".eml");
 }
 
 function statusTone(status: string) {
@@ -59,109 +79,214 @@ export function EmailScanner() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [scanMode, setScanMode] = useState<ScanMode>("rule");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [userAcceptsDanger, setUserAcceptsDanger] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResponse | null>(null);
+  const [batchResult, setBatchResult] = useState<ScanBatchResponse | null>(null);
+  const [selectedBatchIndex, setSelectedBatchIndex] = useState<number | null>(null);
+
+  const selectedBatchItem = useMemo(() => {
+    if (!batchResult || batchResult.items.length === 0) return null;
+    if (selectedBatchIndex !== null) {
+      return batchResult.items.find((item) => item.index === selectedBatchIndex) ?? null;
+    }
+    return batchResult.items.find((item) => item.success && item.result) ?? batchResult.items[0];
+  }, [batchResult, selectedBatchIndex]);
+
+  const activeResult = useMemo(() => {
+    if (selectedBatchItem?.success && selectedBatchItem.result) {
+      return selectedBatchItem.result;
+    }
+    return batchResult ? null : result;
+  }, [batchResult, result, selectedBatchItem]);
 
   const status = useMemo(() => {
-    if (!result) return null;
-    return statusTone(result.final_status);
-  }, [result]);
+    if (!activeResult) return null;
+    return statusTone(activeResult.final_status);
+  }, [activeResult]);
 
   const visibleLogs = useMemo(() => {
-    if (!result?.execution_logs?.length) return [];
+    if (!activeResult?.execution_logs?.length) return [];
+    const normalized = activeResult.execution_logs
+      .flatMap((line) => line.split(/\r?\n/))
+      .map((line) => line.trimEnd())
+      .filter((line) => line.trim().length > 0);
     // Avoid rendering very large log payloads in one paint.
-    return result.execution_logs.slice(0, 120);
-  }, [result]);
+    return normalized.slice(0, 120);
+  }, [activeResult]);
 
-  const selectFile = (candidate: File | null) => {
-    if (!candidate) {
+  const totalDisplayLogs = useMemo(() => {
+    if (!activeResult?.execution_logs?.length) return 0;
+    return activeResult.execution_logs
+      .flatMap((line) => line.split(/\r?\n/))
+      .filter((line) => line.trim().length > 0).length;
+  }, [activeResult]);
+
+  const selectFiles = (candidates: FileList | File[] | null) => {
+    if (!candidates) {
       return;
     }
 
-    if (!isValidEml(candidate)) {
-      setError("Only .eml files are supported.");
+    const selected = Array.from(candidates);
+    if (selected.length === 0) {
+      return;
+    }
+
+    const invalid = selected.filter((item) => !isValidEmlCandidate(item)).map((item) => item.name);
+    if (invalid.length > 0) {
+      setError(`Only .eml files are supported. Invalid: ${invalid.slice(0, 3).join(", ")}`);
       return;
     }
 
     setError(null);
-    setFile(candidate);
+    setFiles(selected);
+    setBatchResult(null);
+    setSelectedBatchIndex(null);
   };
+
+
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setDragActive(false);
-    selectFile(event.dataTransfer.files?.[0] ?? null);
+    selectFiles(event.dataTransfer.files ?? null);
   };
 
   const handleUpload = async () => {
-    if (!isValidEml(file)) {
-      setError("Select a valid .eml file before scanning.");
+    if (files.length === 0) {
+      setError("Select at least one valid .eml file before scanning.");
       return;
     }
 
     setError(null);
     setIsUploading(true);
+    setResult(null);
+    setBatchResult(null);
+    setSelectedBatchIndex(null);
     const uploadStartTime = Date.now();
-
-    const endpoint = scanMode === "llm" ? "/api/v1/scan-upload-llm" : "/api/v1/scan-upload";
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("user_accepts_danger", String(userAcceptsDanger));
 
     try {
       const controller = new AbortController();
       // 5 minute timeout for large file uploads
       const timeoutId = setTimeout(() => controller.abort(), 300000);
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
+      if (files.length === 1 && isValidEml(files[0])) {
+        const endpoint = scanMode === "llm" ? "/api/v1/scan-upload-llm" : "/api/v1/scan-upload";
+        const formData = new FormData();
+        formData.append("file", files[0]);
+        formData.append("user_accepts_danger", String(userAcceptsDanger));
 
-      clearTimeout(timeoutId);
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        let detail = "Scan request failed.";
-        try {
-          const payload = await response.json();
-          detail = payload?.detail ?? detail;
-        } catch {
-          // Non-JSON error payload.
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          let detail = "Scan request failed.";
+          try {
+            const payload = await response.json();
+            detail = payload?.detail ?? detail;
+          } catch {
+            // Non-JSON error payload.
+          }
+          throw new Error(typeof detail === "string" ? detail : "Scan request failed.");
         }
-        throw new Error(typeof detail === "string" ? detail : "Scan request failed.");
+
+        const payload = (await response.json()) as ScanResponse;
+        const durationMs = Date.now() - uploadStartTime;
+        setResult(payload);
+        const participants = await extractSenderReceiver(files[0]);
+
+        // Save to PostgreSQL history truly non-blocking.
+        void saveScanToHistory({
+          scan_mode: scanMode,
+          file_name: files[0].name,
+          sender: participants.sender,
+          receiver: participants.receiver,
+          final_status: payload.final_status,
+          issue_count: payload.issue_count,
+          duration_ms: durationMs,
+          termination_reason: payload.termination_reason ?? null,
+          ai_classify: payload.ai_classify ?? null,
+          ai_reason: payload.ai_reason ?? null,
+          ai_summary: payload.ai_summary ?? null,
+          ai_provider: payload.ai_provider ?? null,
+          ai_confidence_percent: payload.ai_confidence_percent ?? null,
+          execution_logs: payload.execution_logs,
+          ai_cot_steps: payload.ai_cot_steps ?? [],
+        }).catch((historyError) => {
+          console.debug("Scan history save failed (non-blocking):", historyError);
+        });
+      } else {
+        const endpoint = scanMode === "llm" ? "/api/v1/scan-upload-llm-batch" : "/api/v1/scan-upload-batch";
+        const formData = new FormData();
+        files.forEach((candidate) => {
+          formData.append("files", candidate);
+        });
+        formData.append("user_accepts_danger", String(userAcceptsDanger));
+        formData.append("continue_on_error", "true");
+
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          let detail = "Batch scan request failed.";
+          try {
+            const payload = await response.json();
+            detail = payload?.detail ?? detail;
+          } catch {
+            // Non-JSON error payload.
+          }
+          throw new Error(typeof detail === "string" ? detail : "Batch scan request failed.");
+        }
+
+        const payload = (await response.json()) as ScanBatchResponse;
+        const durationMs = Date.now() - uploadStartTime;
+        const durationPerItem = Math.max(1, Math.round(durationMs / Math.max(payload.items.length, 1)));
+
+        setBatchResult(payload);
+        const firstSuccessful = payload.items.find((item) => item.success && item.result);
+        setSelectedBatchIndex(firstSuccessful?.index ?? (payload.items[0]?.index ?? null));
+
+        for (const item of payload.items) {
+          if (!item.success || !item.result) continue;
+          const sourceFile = files[item.index] ?? null;
+          const participants = sourceFile ? await extractSenderReceiver(sourceFile) : { sender: null, receiver: null };
+          const fallbackName = sourceFile?.name ?? item.email_path;
+
+          void saveScanToHistory({
+            scan_mode: scanMode,
+            file_name: fallbackName,
+            sender: participants.sender,
+            receiver: participants.receiver,
+            final_status: item.result.final_status,
+            issue_count: item.result.issue_count,
+            duration_ms: durationPerItem,
+            termination_reason: item.result.termination_reason ?? null,
+            ai_classify: item.result.ai_classify ?? null,
+            ai_reason: item.result.ai_reason ?? null,
+            ai_summary: item.result.ai_summary ?? null,
+            ai_provider: item.result.ai_provider ?? null,
+            ai_confidence_percent: item.result.ai_confidence_percent ?? null,
+            execution_logs: item.result.execution_logs,
+            ai_cot_steps: item.result.ai_cot_steps ?? [],
+          }).catch((historyError) => {
+            console.debug("Batch scan history save failed (non-blocking):", historyError);
+          });
+        }
       }
-
-      const payload = (await response.json()) as ScanResponse;
-      const durationMs = Date.now() - uploadStartTime;
-      setResult(payload);
-      const participants = await extractSenderReceiver(file);
-
-      // Save to PostgreSQL history truly non-blocking.
-      void saveScanToHistory({
-        scan_mode: scanMode,
-        file_name: file.name,
-        sender: participants.sender,
-        receiver: participants.receiver,
-        final_status: payload.final_status,
-        issue_count: payload.issue_count,
-        duration_ms: durationMs,
-        termination_reason: payload.termination_reason ?? null,
-        ai_classify: payload.ai_classify ?? null,
-        ai_reason: payload.ai_reason ?? null,
-        ai_summary: payload.ai_summary ?? null,
-        ai_provider: payload.ai_provider ?? null,
-        ai_confidence_percent: payload.ai_confidence_percent ?? null,
-        execution_logs: payload.execution_logs,
-        ai_cot_steps: payload.ai_cot_steps ?? [],
-      }).catch((historyError) => {
-        console.debug("Scan history save failed (non-blocking):", historyError);
-      });
     } catch (uploadError) {
       let message = "Unexpected upload error.";
       
@@ -243,14 +368,15 @@ export function EmailScanner() {
                   onDrop={handleDrop}
                 >
                   <Upload className={cn("mx-auto mb-3 h-8 w-8", isDark ? "text-blue-300" : "text-blue-600")} />
-                  <p className="text-sm font-medium">Drag and drop your .eml file here</p>
+                  <p className="text-sm font-medium">Drag and drop your .eml file(s) here</p>
                   <p className={cn("mt-1 text-xs", isDark ? "text-white/50" : "text-slate-500")}>or browse from your computer</p>
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept=".eml"
+                    multiple
                     className="hidden"
-                    onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+                    onChange={(event) => selectFiles(event.target.files ?? null)}
                   />
                   <Button
                     type="button"
@@ -271,13 +397,26 @@ export function EmailScanner() {
                   Continue scan even if dangerous indicators are found.
                 </label>
 
-                {file ? (
+                {files.length > 0 ? (
                   <div className={cn("flex items-center justify-between rounded-lg border px-4 py-3", isDark ? "border-white/15 bg-white/5" : "border-slate-200 bg-white") }>
                     <div className="flex items-center gap-2 text-sm">
                       <FileText className="h-4 w-4" />
-                      <span className="max-w-[260px] truncate">{file.name}</span>
+                      <span className="max-w-[320px] truncate">
+                        {files.length === 1 ? files[0].name : `${files.length} files selected`}
+                      </span>
                     </div>
-                    <span className={cn("text-xs", isDark ? "text-white/50" : "text-slate-500")}>{(file.size / 1024).toFixed(1)} KB</span>
+                    <span className={cn("text-xs", isDark ? "text-white/50" : "text-slate-500")}>
+                      {(files.reduce((sum, item) => sum + item.size, 0) / 1024).toFixed(1)} KB
+                    </span>
+                  </div>
+                ) : null}
+
+                {files.length > 1 ? (
+                  <div className={cn("rounded-lg border px-4 py-3 text-xs", isDark ? "border-white/10 bg-white/5 text-white/70" : "border-slate-200 bg-slate-50 text-slate-600") }>
+                    {files.slice(0, 5).map((entry) => (
+                      <p key={`${entry.name}-${entry.size}`} className="truncate">{entry.name}</p>
+                    ))}
+                    {files.length > 5 ? <p className="mt-1">+ {files.length - 5} more</p> : null}
                   </div>
                 ) : null}
 
@@ -292,7 +431,7 @@ export function EmailScanner() {
                       Scanning...
                     </>
                   ) : (
-                    "Scan Email"
+                    files.length > 1 ? `Scan ${files.length} Emails` : "Scan Email"
                   )}
                 </Button>
               </CardContent>
@@ -306,49 +445,105 @@ export function EmailScanner() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {!result ? (
+                {!activeResult && !batchResult ? (
                   <div className={cn("rounded-lg border border-dashed p-6 text-sm", isDark ? "border-white/15 text-white/60" : "border-slate-300 text-slate-500") }>
                     Upload an email and run scan to see real backend results.
                   </div>
                 ) : (
                   <>
+                    {batchResult ? (
+                      <div className={cn("space-y-3 rounded-lg border p-3", isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50") }>
+                        <p className="text-xs font-semibold uppercase tracking-wide">Batch Summary</p>
+                        <p className={cn("text-xs", isDark ? "text-white/70" : "text-slate-600")}>
+                          Total: {batchResult.total} | Succeeded: {batchResult.succeeded} | Failed: {batchResult.failed}
+                        </p>
+                        <div className="max-h-32 space-y-1 overflow-auto">
+                          {batchResult.items.map((item) => {
+                            const sourceName = files[item.index]?.name ?? item.email_path;
+                            const itemFinalStatus = item.result?.final_status ?? null;
+                            const itemTone = itemFinalStatus ? statusTone(itemFinalStatus) : null;
+                            const itemLabel = item.success
+                              ? (itemFinalStatus ?? "COMPLETED")
+                              : "ERROR";
+                            const itemLabelClass = !item.success
+                              ? "text-rose-500"
+                              : itemTone === "danger"
+                                ? "text-rose-500"
+                                : itemTone === "warning"
+                                  ? "text-amber-500"
+                                  : itemTone === "safe"
+                                    ? "text-emerald-500"
+                                    : "text-slate-500";
+                            return (
+                              <button
+                                key={`${item.index}-${sourceName}`}
+                                type="button"
+                                className={cn(
+                                  "flex w-full items-center justify-between rounded border px-2 py-1 text-left text-xs",
+                                  selectedBatchItem?.index === item.index
+                                    ? isDark
+                                      ? "border-blue-300/40 bg-blue-500/20"
+                                      : "border-blue-300 bg-blue-100"
+                                    : isDark
+                                      ? "border-white/10 bg-black/20"
+                                      : "border-slate-200 bg-white",
+                                )}
+                                onClick={() => setSelectedBatchIndex(item.index)}
+                              >
+                                <span className="truncate pr-2">{sourceName}</span>
+                                <span className={cn(itemLabelClass)}>{itemLabel}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedBatchItem && !selectedBatchItem.success ? (
+                      <div className={cn("rounded-md border px-3 py-2 text-sm", isDark ? "border-red-400/30 bg-red-500/10 text-red-200" : "border-red-200 bg-red-50 text-red-700") }>
+                        {selectedBatchItem.error ?? "Batch item failed."}
+                      </div>
+                    ) : null}
+
+                    {activeResult ? (
+                      <>
                     <div className="flex items-center gap-2">
                       {status === "safe" ? <ShieldCheck className="h-5 w-5 text-emerald-500" /> : null}
                       {status === "warning" ? <ShieldQuestion className="h-5 w-5 text-amber-500" /> : null}
                       {status === "danger" ? <ShieldAlert className="h-5 w-5 text-red-500" /> : null}
-                      <Badge variant={status === "danger" ? "destructive" : "default"}>{result.final_status}</Badge>
-                      <span className={cn("text-xs", isDark ? "text-white/60" : "text-slate-500")}>Issues: {result.issue_count}</span>
+                      <Badge variant={status === "danger" ? "destructive" : "default"}>{activeResult.final_status}</Badge>
+                      <span className={cn("text-xs", isDark ? "text-white/60" : "text-slate-500")}>Issues: {activeResult.issue_count}</span>
                     </div>
 
-                    {result.termination_reason ? (
+                    {activeResult.termination_reason ? (
                       <div className={cn("rounded-md border px-3 py-2 text-sm", isDark ? "border-amber-400/30 bg-amber-500/10 text-amber-100" : "border-amber-200 bg-amber-50 text-amber-800") }>
-                        {result.termination_reason}
+                        {activeResult.termination_reason}
                       </div>
                     ) : null}
 
-                    {(result.ai_reason || result.ai_summary || result.ai_classify) ? (
+                    {(activeResult.ai_reason || activeResult.ai_summary || activeResult.ai_classify) ? (
                       <div className={cn("space-y-3 rounded-lg border p-4", isDark ? "border-blue-400/20 bg-blue-500/10" : "border-blue-200 bg-blue-50") }>
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold">🤖 LLM Analysis</span>
                           <span className={cn("text-xs", isDark ? "text-blue-200" : "text-blue-700") }>
-                            {result.ai_provider ?? "AI"}
-                            {typeof result.ai_confidence_percent === "number" ? ` - ${result.ai_confidence_percent}%` : ""}
+                            {activeResult.ai_provider ?? "AI"}
+                            {typeof activeResult.ai_confidence_percent === "number" ? ` - ${activeResult.ai_confidence_percent}%` : ""}
                           </span>
                         </div>
                         
-                        {result.ai_classify ? (
+                        {activeResult.ai_classify ? (
                           <div>
                             <p className={cn("text-xs font-medium mb-1", isDark ? "text-white/60" : "text-slate-600")}>Classification</p>
-                            <p className={cn("text-sm font-bold capitalize", result.ai_classify === "safe" ? (isDark ? "text-emerald-300" : "text-emerald-700") : (isDark ? "text-rose-300" : "text-rose-700"))}>
-                              {result.ai_classify}
+                            <p className={cn("text-sm font-bold capitalize", activeResult.ai_classify === "safe" ? (isDark ? "text-emerald-300" : "text-emerald-700") : (isDark ? "text-rose-300" : "text-rose-700"))}>
+                              {activeResult.ai_classify}
                             </p>
                           </div>
                         ) : null}
                         
-                        {result.ai_reason ? (
+                        {activeResult.ai_reason ? (
                           <div>
                             <p className={cn("text-xs font-medium mb-1", isDark ? "text-white/60" : "text-slate-600")}>Reason</p>
-                            <p className="text-sm leading-relaxed">{result.ai_reason}</p>
+                            <p className="text-sm leading-relaxed">{activeResult.ai_reason}</p>
                           </div>
                         ) : null}
                       </div>
@@ -361,16 +556,23 @@ export function EmailScanner() {
                           <p className={cn(isDark ? "text-white/40" : "text-slate-500")}>No logs returned.</p>
                         ) : (
                           visibleLogs.map((line, idx) => (
-                            <p key={`${line}-${idx}`} className={cn("leading-relaxed", isDark ? "text-white/80" : "text-slate-700")}>{line}</p>
+                            <div key={`${line}-${idx}`} className="flex gap-2">
+                              <span className={cn("w-7 shrink-0 text-right tabular-nums", isDark ? "text-white/40" : "text-slate-400")}>
+                                {idx + 1}.
+                              </span>
+                              <p className={cn("leading-relaxed", isDark ? "text-white/80" : "text-slate-700")}>{line}</p>
+                            </div>
                           ))
                         )}
                       </div>
-                      {result.execution_logs.length > visibleLogs.length ? (
+                      {totalDisplayLogs > visibleLogs.length ? (
                         <p className={cn("mt-2 text-xs", isDark ? "text-white/50" : "text-slate-500")}>
-                          Showing first {visibleLogs.length} of {result.execution_logs.length} log lines.
+                          Showing first {visibleLogs.length} of {totalDisplayLogs} log lines.
                         </p>
                       ) : null}
                     </div>
+                      </>
+                    ) : null}
                   </>
                 )}
               </CardContent>

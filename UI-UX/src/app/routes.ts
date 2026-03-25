@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, redirect } from "react-router";
 
 export const router = createBrowserRouter([
   {
@@ -10,6 +10,13 @@ export const router = createBrowserRouter([
   },
   {
     path: "/scanner",
+    lazy: async () => {
+      const mod = await import("./components/EmailScanner");
+      return { Component: mod.EmailScanner };
+    },
+  },
+  {
+    path: "/scanner/",
     lazy: async () => {
       const mod = await import("./components/EmailScanner");
       return { Component: mod.EmailScanner };
@@ -28,5 +35,9 @@ export const router = createBrowserRouter([
       const mod = await import("./components/WhitelistBlacklistPage");
       return { Component: mod.WhitelistBlacklistPage };
     },
+  },
+  {
+    path: "*",
+    loader: () => redirect("/scanner"),
   },
 ]);
