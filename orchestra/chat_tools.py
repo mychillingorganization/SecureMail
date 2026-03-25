@@ -174,6 +174,8 @@ async def _check_file_hash_reputation(session: AsyncSession, message: str) -> di
 
     file_hash = target_value
     file_row = await session.get(File, file_hash)
+    if file_row is None:
+        file_row = await session.get(File, file_hash.upper())
 
     latest_file_risk_stmt = (
         select(FileXgboostResults.risk_level, FileXgboostResults.confidence)

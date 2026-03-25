@@ -8,6 +8,7 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,23 @@ from orchestra.schemas import (
     ScanResponse,
 )
 from orchestra.threat_intel import ThreatIntelScanner
+
+
+def _normalize_url_for_hash(raw: str) -> str:
+    value = (raw or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    scheme = (parsed.scheme or "https").lower()
+    netloc = parsed.netloc.lower()
+
+    # Support plain-domain input like "example.com/path".
+    if not netloc and parsed.path and "." in parsed.path:
+        parsed = urlsplit(f"{scheme}://{value}")
+        netloc = parsed.netloc.lower()
+
+    return urlunsplit((scheme, netloc, parsed.path or "", parsed.query or "", ""))
 
 
 @asynccontextmanager
@@ -1162,7 +1180,11 @@ async def add_to_list(
     try:
         if type == "url":
             from orchestra.models import Url
-            url_hash = hashlib.sha256(value.strip().encode()).hexdigest()
+            normalized_url = _normalize_url_for_hash(value)
+            if not normalized_url:
+                raise HTTPException(status_code=422, detail="Invalid URL value")
+
+            url_hash = hashlib.sha256(normalized_url.encode()).hexdigest()
             
             stmt = select(Url).where(Url.url_hash == url_hash)
             result = await session.execute(stmt)
@@ -1171,7 +1193,7 @@ async def add_to_list(
             if url_obj is None:
                 url_obj = Url(
                     url_hash=url_hash,
-                    raw_url=value.strip(),
+                    raw_url=normalized_url,
                     is_whitelisted=action == "whitelist",
                     is_blacklisted=action == "blacklist",
                 )
@@ -1188,11 +1210,17 @@ async def add_to_list(
             return {"status": "ok", "id": url_hash, "message": f"Added to {action}"}
         else:  # file_hash
             from orchestra.models import File
-            file_hash = value.strip().upper()
+            file_hash = value.strip().lower()
 
             stmt = select(File).where(File.file_hash == file_hash)
             result = await session.execute(stmt)
             file_obj = result.scalar_one_or_none()
+
+            # Backward compatibility with older uppercase hash rows.
+            if file_obj is None:
+                stmt_upper = select(File).where(File.file_hash == file_hash.upper())
+                result_upper = await session.execute(stmt_upper)
+                file_obj = result_upper.scalar_one_or_none()
 
             if file_obj is None:
                 file_obj = File(
