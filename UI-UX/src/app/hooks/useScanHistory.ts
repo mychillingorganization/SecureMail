@@ -44,9 +44,12 @@ export function useScanHistory(
   }, [limit, scan_mode]);
 
   useEffect(() => {
+    // Always load history on mount
+    loadHistory();
+    
+    // If autoFetch is enabled, also set up polling
     if (!autoFetch) return;
     
-    loadHistory();
     // Poll every 30 seconds (only if autoFetch is enabled)
     const interval = setInterval(loadHistory, 30000);
     return () => {

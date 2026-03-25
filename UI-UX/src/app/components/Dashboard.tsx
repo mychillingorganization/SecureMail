@@ -1,16 +1,23 @@
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { KPICard } from "./KPICard";
-import { LatencyChart } from "./LatencyChart";
 import { ActivityTable } from "./ActivityTable";
 import { CursorEffect } from "./CursorEffect";
 import { ParticleBackground } from "./ParticleBackground";
 import { Zap, Mail, OctagonAlert } from "lucide-react";
 import { useTheme } from "./ThemeContext";
+import { useScanHistory } from "../hooks/useScanHistory";
 
 export function Dashboard() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
+  const { history } = useScanHistory(100, undefined, false);
+
+  // Calculate metrics from scan history
+  const totalScanned = history.length;
+  const passedScans = history.filter(s => s.final_status === "PASS").length;
+  const issuesFound = history.reduce((sum, s) => sum + (s.issue_count || 0), 0);
+  const errorRate = totalScanned > 0 ? ((totalScanned - passedScans) / totalScanned * 100).toFixed(2) : "0.00";
 
   return (
     <>
@@ -60,10 +67,10 @@ export function Dashboard() {
               <div className="mb-8 flex items-end justify-between">
                 <div>
                   <h1 className={`text-3xl font-bold tracking-tight ${isDark ? 'text-white/95 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'text-slate-800'}`}>
-                    System Overview
+                    Email Security Monitor
                   </h1>
                   <p className={`mt-1 text-sm ${isDark ? 'text-white/40' : 'text-slate-500'}`}>
-                    Live analytics and gateway monitoring telemetry
+                    Live email scanning analytics and threat detection
                   </p>
                 </div>
                 <div className={`flex h-10 items-center justify-center rounded-lg border px-4 text-xs font-semibold shadow-inner backdrop-blur-md ${isDark ? 'border-white/5 bg-white/5 text-white/50' : 'border-slate-200 bg-white/50 text-slate-500'}`}>
@@ -74,25 +81,25 @@ export function Dashboard() {
               {/* KPI Cards */}
               <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                 <KPICard
-                  title="Processing Speed"
-                  value="~1.4M"
-                  subtext="0.2M vs last hr"
+                  title="Total Emails Scanned"
+                  value={totalScanned.toString()}
+                  subtext={`${passedScans} passed security check`}
                   trend="up"
                   glowColor="blue"
                   icon={<Zap size={16} />}
                 />
                 <KPICard
-                  title="Pending Emails"
-                  value="~4,289"
-                  subtext="1,120 in queue"
-                  trend="neutral"
+                  title="Issues Detected"
+                  value={issuesFound.toString()}
+                  subtext={`${((issuesFound / Math.max(totalScanned, 1)) * 100).toFixed(1)}% of emails`}
+                  trend={issuesFound > 0 ? "up" : "down"}
                   glowColor="gold"
                   icon={<Mail size={16} />}
                 />
                 <KPICard
-                  title="Error Rate"
-                  value="~0.04%"
-                  subtext="0.01% critical threshold"
+                  title="Threat Detection Rate"
+                  value={`${errorRate}%`}
+                  subtext={`${totalScanned - passedScans} threats found`}
                   trend="down"
                   glowColor="orange"
                   icon={<OctagonAlert size={16} />}
@@ -102,10 +109,7 @@ export function Dashboard() {
               {/* Main Data Section */}
               <div className="flex flex-col gap-6">
                 <div className="w-full min-h-[400px] min-w-0">
-                  <LatencyChart />
-                </div>
-                <div className="w-full min-h-[400px] min-w-0">
-                  <ActivityTable />
+                  <ActivityTable scanHistory={history} />
                 </div>
               </div>
 

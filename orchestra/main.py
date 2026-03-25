@@ -31,10 +31,15 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="SecureMail Orchestrator", version="1.0.0", lifespan=lifespan)
 
 settings = get_settings()
-origins = [item.strip() for item in settings.cors_allow_origins.split(",") if item.strip()]
+# Handle wildcard origin specially
+if settings.cors_allow_origins == "*":
+    origins = ["*"]
+else:
+    origins = [item.strip() for item in settings.cors_allow_origins.split(",") if item.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins or ["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

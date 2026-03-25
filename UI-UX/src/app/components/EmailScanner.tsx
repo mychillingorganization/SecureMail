@@ -306,17 +306,31 @@ export function EmailScanner() {
                       </div>
                     ) : null}
 
-                    {(result.ai_reason || result.ai_summary) ? (
-                      <div className={cn("space-y-2 rounded-lg border p-4", isDark ? "border-blue-400/20 bg-blue-500/10" : "border-blue-200 bg-blue-50") }>
+                    {(result.ai_reason || result.ai_summary || result.ai_classify) ? (
+                      <div className={cn("space-y-3 rounded-lg border p-4", isDark ? "border-blue-400/20 bg-blue-500/10" : "border-blue-200 bg-blue-50") }>
                         <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold">LLM Insights</span>
+                          <span className="text-sm font-semibold">🤖 LLM Analysis</span>
                           <span className={cn("text-xs", isDark ? "text-blue-200" : "text-blue-700") }>
                             {result.ai_provider ?? "AI"}
                             {typeof result.ai_confidence_percent === "number" ? ` - ${result.ai_confidence_percent}%` : ""}
                           </span>
                         </div>
-                        {result.ai_reason ? <p className="text-sm">{result.ai_reason}</p> : null}
-                        {result.ai_summary ? <p className={cn("text-xs", isDark ? "text-white/70" : "text-slate-700")}>{result.ai_summary}</p> : null}
+                        
+                        {result.ai_classify ? (
+                          <div>
+                            <p className={cn("text-xs font-medium mb-1", isDark ? "text-white/60" : "text-slate-600")}>Classification</p>
+                            <p className={cn("text-sm font-bold capitalize", result.ai_classify === "safe" ? (isDark ? "text-emerald-300" : "text-emerald-700") : (isDark ? "text-rose-300" : "text-rose-700"))}>
+                              {result.ai_classify}
+                            </p>
+                          </div>
+                        ) : null}
+                        
+                        {result.ai_reason ? (
+                          <div>
+                            <p className={cn("text-xs font-medium mb-1", isDark ? "text-white/60" : "text-slate-600")}>Reason</p>
+                            <p className="text-sm leading-relaxed">{result.ai_reason}</p>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 

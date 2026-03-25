@@ -14,7 +14,6 @@ export function Sidebar() {
 
   const navItems = [
     { icon: LayoutDashboard, label: "Monitor", path: "/" },
-    { icon: Mail, label: "Scanner", path: "/scanner" },
   ];
 
   return (
