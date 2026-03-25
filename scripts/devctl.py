@@ -29,7 +29,7 @@ DEFAULT_SCAN_OUTPUT_DIR = ROOT / "orchestra" / "scan_results"
 SERVICES = {
     "email": {
         "health": "http://127.0.0.1:8000/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "email_agent.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "email_module.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "file": {

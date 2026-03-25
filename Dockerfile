@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY orchestra ./orchestra
 COPY src ./src
 COPY ai_module ./ai_module
-COPY email_agent ./email_agent
+COPY email_module ./email_module
 COPY web_module ./web_module
 COPY file_module/file_module ./file_module/file_module
 COPY scripts ./scripts

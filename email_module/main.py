@@ -49,12 +49,13 @@ class _EmailModelRuntime:
         if configured_dir:
             base_dir = Path(configured_dir).resolve()
         else:
-            # New default: keep inference artifacts inside the email agent folder.
+            # New default: keep inference artifacts inside the email module folder.
             base_dir = module_dir / "models"
             # Backward compatibility for older layouts.
             if not (base_dir / "svm_model.pkl").exists():
                 legacy_candidates = [
                     module_dir / "model_svm_email",
+                    module_dir.parent / "temporary" / "root-legacy" / "email_module" / "model_svm_email",
                     module_dir.parent / "temporary" / "root-legacy" / "email_agent" / "model_svm_email",
                 ]
                 base_dir = next((p for p in legacy_candidates if (p / "svm_model.pkl").exists()), legacy_candidates[0])

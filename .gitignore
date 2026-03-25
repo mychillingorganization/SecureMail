@@ -165,7 +165,7 @@ test/attachments/HEADBANNER1812.webp
 test/attachments/header-email.webp
 
 utils/test_parse_eml.py
-email_agent/tests/test_protocol.py
+email_module/tests/test_protocol.py
 orchestra/pland.md
 
 # -----------------------------
@@ -181,7 +181,7 @@ test_cache/
 main (1).pdf
 file_module/.env.example
 file_module/.gitignore
-email_agent/__pycache__/protocol_verifier.cpython-313.pyc
+email_module/__pycache__/protocol_verifier.cpython-313.pyc
 file_module/requirements.txt
 file_module/dataset/training_data_collected.csv
 # Local-only test files (unrelated to committed suite)
@@ -203,13 +203,13 @@ test7_scan_llm_output.json
 test7_scan_output.json
 test7_scan_llm_ai_agent_output.json
 test7.eml
-email_agent/__pycache__/protocol_verifier.cpython-312.pyc
-email_agent/__pycache__/protocol_verifier.cpython-313.pyc
-email_agent/tests/__pycache__/__init__.cpython-312.pyc
+email_module/__pycache__/protocol_verifier.cpython-312.pyc
+email_module/__pycache__/protocol_verifier.cpython-313.pyc
+email_module/tests/__pycache__/__init__.cpython-312.pyc
 orchestra/tests/test_pipeline.py
-email_agent/__pycache__/protocol_verifier.cpython-312.pyc
-email_agent/__pycache__/protocol_verifier.cpython-313.pyc
-email_agent/tests/__pycache__/__init__.cpython-312.pyc
+email_module/__pycache__/protocol_verifier.cpython-312.pyc
+email_module/__pycache__/protocol_verifier.cpython-313.pyc
+email_module/tests/__pycache__/__init__.cpython-312.pyc
 test5.eml:OECustomProperty
 test6.eml:OECustomProperty
 test7.eml:OECustomProperty
