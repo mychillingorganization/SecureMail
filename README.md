@@ -27,6 +27,10 @@ The system is composed of several specialized microservices and components:
 - Docker & Docker Compose (optional, for containerized deployment)
 - Git
 
+Additional compose files available:
+- `docker-compose.dev.yml` for development overrides (reload/debug)
+- `docker-compose.prod.yml` for production-oriented settings
+
 ---
 
 ### 1. Docker Setup (Quick Start)
@@ -46,6 +50,10 @@ The system is composed of several specialized microservices and components:
 4. Check the orchestrator health:
    ```bash
    curl http://localhost:8080/health
+   ```
+   Optional development mode with overrides:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
    ```
 5. To stop the system:
    ```bash
@@ -71,9 +79,17 @@ The system is composed of several specialized microservices and components:
    ```bash
    alembic -c orchestra/alembic.ini upgrade head
    ```
+   Optional (DB list seeding): URL/file blacklist and URL whitelist are **not** imported to PostgreSQL by default. To import them:
+   ```bash
+   python scripts/import_lists_to_postgres.py
+   ```
 5. Start all microservices (email, file, web, ai, orchestrator):
    ```bash
    python scripts/devctl.py up
+   ```
+   Alternative helper (supports optional frontend startup):
+   ```bash
+   bash scripts/run_app.sh local --frontend
    ```
 6. Check the status of all services:
    ```bash
@@ -110,6 +126,12 @@ You can test the system by uploading an `.eml` file via the frontend scanner pag
 curl -X POST http://127.0.0.1:8080/api/v1/scan-upload \
   -F "file=@path/to/your/email.eml"
 ```
+
+Additional useful scan endpoints:
+- `POST /api/v1/scan` (JSON payload with `email_path`)
+- `POST /api/v1/scan-batch` (JSON batch)
+- `POST /api/v1/scan-upload-batch` (multipart batch upload)
+- `POST /api/v1/scan-llm` and `POST /api/v1/scan-upload-llm` (LLM-assisted mode)
 
 ## Environment Variables
 
