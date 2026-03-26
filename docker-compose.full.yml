@@ -1,0 +1,140 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: securemail-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-securemail}
+      POSTGRES_USER: ${POSTGRES_USER:-securemail}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securemail}
+      POSTGRES_INITDB_ARGS: "-c log_replication_commands=off"
+    ports:
+      - "5432:5432"
+    volumes:
+      - securemail_pg_data:/var/lib/postgresql/data
+      - ./src/db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-securemail} -d ${POSTGRES_DB:-securemail}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+  email:
+    build:
+      context: .
+      dockerfile: email_module/Dockerfile
+    container_name: securemail-email
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+  file:
+    build:
+      context: .
+      dockerfile: file_module/Dockerfile
+    container_name: securemail-file
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+  web:
+    build:
+      context: .
+      dockerfile: web_module/Dockerfile
+    container_name: securemail-web
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8002/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+  ai:
+    build:
+      context: .
+      dockerfile: ai_module/Dockerfile
+    container_name: securemail-ai
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env
+    environment:
+      SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY: ${SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY:-}
+      SECUREMAIL_GOOGLE_AI_STUDIO_MODEL: ${SECUREMAIL_GOOGLE_AI_STUDIO_MODEL:-gemini-3.1-flash-lite-preview}
+      SECUREMAIL_GOOGLE_AI_STUDIO_BASE_URL: ${SECUREMAIL_GOOGLE_AI_STUDIO_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8003/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securemail-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      email:
+        condition: service_healthy
+      file:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      SECUREMAIL_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-securemail}:${POSTGRES_PASSWORD:-securemail}@postgres:5432/${POSTGRES_DB:-securemail}
+      SECUREMAIL_EMAIL_AGENT_URL: http://email:8000
+      SECUREMAIL_FILE_AGENT_URL: http://file:8001
+      SECUREMAIL_WEB_AGENT_URL: http://web:8002
+      SECUREMAIL_AI_AGENT_URL: http://ai:8003
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - securemail-net
+
+volumes:
+  securemail_pg_data:
+    driver: local
+
+networks:
+  securemail-net:
+    driver: bridge

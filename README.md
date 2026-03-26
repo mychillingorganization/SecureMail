@@ -87,22 +87,35 @@ Alembic config entrypoint remains at `orchestra/alembic.ini` and points to `src/
 
 ## Quick Start (Docker)
 
-### 1) Build and run
+Recommended for new users (full stack in Docker):
 
 ```bash
-docker compose up -d --build
+cd /home/passla1/Desktop/final_project/SecureMail
+sudo -E bash scripts/run_app.sh docker-full
 ```
 
-### 2) Verify
+Run with frontend too:
 
 ```bash
-curl http://localhost:8080/health
+sudo -E bash scripts/run_app.sh docker-full --frontend
 ```
 
-### 3) Stop
+Recreate containers without rebuild/download:
 
 ```bash
-docker compose down
+sudo -E bash scripts/run_app.sh docker-full --recreate
+```
+
+Verify:
+
+```bash
+curl http://127.0.0.1:8080/health
+```
+
+Stop:
+
+```bash
+sudo docker compose -f docker-compose.full.yml down
 ```
 
 ## Local Setup (without Docker)
@@ -110,8 +123,18 @@ docker compose down
 ```bash
 bash setup.sh
 source .venv/bin/activate
-/home/passla1/Desktop/SecureMail/.venv/bin/python scripts/devctl.py up
-/home/passla1/Desktop/SecureMail/.venv/bin/python scripts/devctl.py status
+./.venv/bin/python scripts/devctl.py up
+./.venv/bin/python scripts/devctl.py status
+```
+
+## Frontend Only
+
+Always run frontend from `UI-UX/`:
+
+```bash
+cd UI-UX
+npm install
+npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 ## Environment Variables
@@ -131,3 +154,12 @@ Common `.env` keys:
 - `temporary/` is a soft archive. Files are preserved, not deleted.
 - `model_training_pipeline/` is intentionally excluded from production Docker context.
 - Runtime schema source of truth is Alembic migration head in `src/db/migrations/versions/`.
+
+## Troubleshooting
+
+If scan shows `EmailAgent/WebAgent unavailable` or ports are busy, stop local services first, then recreate Docker services without rebuild:
+
+```bash
+./.venv/bin/python scripts/devctl.py down
+sudo -E bash scripts/run_app.sh docker-full --recreate
+```
