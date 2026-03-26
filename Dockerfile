@@ -28,7 +28,6 @@ COPY web_module ./web_module
 COPY file_module/file_module ./file_module/file_module
 COPY utils ./utils
 COPY scripts ./scripts
-COPY .env.example . 2>/dev/null || true
 
 EXPOSE 8080
 
