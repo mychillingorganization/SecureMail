@@ -219,3 +219,4 @@ src/db/data/lists/file_black_list.csv
 
 # Archived local workspace and throwaway artifacts
 temporary/
+.env.example2

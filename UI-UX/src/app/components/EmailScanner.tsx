@@ -1,3 +1,5 @@
+/// <reference path="../../lucide-react.d.ts" />
+
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { Upload, FileText, Loader2, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
 
