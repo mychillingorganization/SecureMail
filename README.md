@@ -1,4 +1,4 @@
-"# SecureMail
+# SecureMail
 
 SecureMail is a microservices-based email security platform designed to detect threats like phishing, malware, and malicious URLs. It features an orchestration layer that leverages the Gemini API for deep-dive analysis and threat reasoning.
 
