@@ -27,13 +27,13 @@ import structlog
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
-from clawback import execute_clawback, get_quarantine_log
-from config import settings
-from dynamic_sandbox import run_sandbox
-from hash_triage import run_hash_triage
-from models import AnalysisResult, FileType, RiskLevel, XGBoostResult
-from static_analyzer import run_static_analysis
-from xgboost_classifier import predict_risk
+from .clawback import execute_clawback, get_quarantine_log
+from .config import settings
+from .dynamic_sandbox import run_sandbox
+from .hash_triage import run_hash_triage
+from .models import AnalysisResult, FileType, RiskLevel, XGBoostResult
+from .static_analyzer import run_static_analysis
+from .xgboost_classifier import predict_risk
 
 # ─────────────────────────────────────────────
 # Logging

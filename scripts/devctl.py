@@ -23,7 +23,9 @@ from cli_progress import StepProgress
 
 RUNTIME_DIR = ROOT / ".runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-PYTHON_BIN = sys.executable
+# Use venv Python if available, otherwise fall back to sys.executable
+VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
+PYTHON_BIN = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 DEFAULT_SCAN_OUTPUT_DIR = ROOT / "orchestra" / "scan_results"
 
 SERVICES = {
@@ -34,13 +36,13 @@ SERVICES = {
     },
     "file": {
         "health": "http://127.0.0.1:8001/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
-        "cwd": ROOT / "file_module" / "file_module",
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "file_module.file_module.main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
+        "cwd": ROOT,
     },
     "web": {
         "health": "http://127.0.0.1:8002/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
-        "cwd": ROOT / "web_module",
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "web_module.main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
+        "cwd": ROOT,
     },
     "ai": {
         "health": "http://127.0.0.1:8003/health",

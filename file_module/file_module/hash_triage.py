@@ -18,8 +18,8 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 
-from config import settings
-from models import HashTriageResult
+from .config import settings
+from .models import HashTriageResult
 
 logger = logging.getLogger(__name__)
 

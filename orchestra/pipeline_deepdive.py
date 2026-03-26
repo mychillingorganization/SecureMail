@@ -220,6 +220,7 @@ async def execute_pipeline_deepdive(
 			auth_failed=auth_failed,
 			malicious_detected=False,
 			reason="Auth Failure: SPF/DKIM/DMARC failed",
+			ignore_issue_threshold=user_accepts_danger,
 		)
 
 		if decision.halt:
@@ -293,6 +294,7 @@ async def execute_pipeline_deepdive(
 				auth_failed=False,
 				malicious_detected=(malicious_hash_detected or malicious_url_hash_detected),
 				reason=termination_reason,
+				ignore_issue_threshold=user_accepts_danger,
 			)
 
 			if not decision.halt:
@@ -315,11 +317,6 @@ async def execute_pipeline_deepdive(
 					issue_count += 1
 					logs.append(f"[WARNING] Step 4: EmailAgent unavailable ({exc}) - issue_count={issue_count}")
 
-				decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
-				if decision.halt:
-					termination_reason = decision.reason
-					logs.append(f"[HALT] Step 4: {termination_reason}")
-
 			if not decision.halt:
 				if attachment_hashes:
 					try:
@@ -332,16 +329,12 @@ async def execute_pipeline_deepdive(
 							file_risk_score = float(file_resp.get("risk_score", 0.0))
 
 							if file_label in thresholds.FILE_AGENT_MALICIOUS_LABELS or file_risk_level in thresholds.FILE_AGENT_DANGEROUS_RISK_LEVELS or file_risk_score >= thresholds.FILE_AGENT_MALICIOUS_RISK_SCORE:
-								termination_reason = f"FileAgent detected malicious attachment: {Path(path).name} (hash={file_hash})"
+								issue_count += 1
 								logs.append(f"[EVIDENCE] Step 5: dangerous_file_hashes={[file_hash]}")
-								logs.append(f"[HALT] Step 5: {termination_reason}")
-								decision = should_terminate(
-									issue_count=issue_count,
-									auth_failed=False,
-									malicious_detected=True,
-									reason=termination_reason,
+								logs.append(
+									f"[WARNING] Step 5: FileAgent malicious signal ({Path(path).name}) - issue_count={issue_count}"
 								)
-								break
+								continue
 
 							if file_risk_level in {"medium", "high", "critical"} or file_risk_score >= thresholds.FILE_RISK_SIGNAL_THRESHOLD:
 								issue_count += 1
@@ -359,11 +352,7 @@ async def execute_pipeline_deepdive(
 				else:
 					logs.append("[INFO] Step 5: FileAgent skipped - no attachments")
 
-				if not decision.halt:
-					decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
-				if decision.halt and termination_reason is None:
-					termination_reason = decision.reason
-					logs.append(f"[HALT] Step 5: {termination_reason}")
+				# Step 5 contributes evidence/issue_count only; halt policy is restricted to Step 2/3.
 
 			if not decision.halt:
 				urls = sorted(parsed.urls)
@@ -373,13 +362,14 @@ async def execute_pipeline_deepdive(
 						web_label = str(web_resp.get("label", "safe")).lower()
 						if web_label in thresholds.WEB_AGENT_MALICIOUS_LABELS:
 							dangerous_urls = _collect_dangerous_urls_from_web_result(web_resp)
+							issue_count += 1
 							if dangerous_urls:
-								termination_reason = f"WebAgent detected phishing URL(s): {', '.join(dangerous_urls[:3])}"
 								logs.append(f"[EVIDENCE] Step 6: dangerous_urls={dangerous_urls}")
+								logs.append(
+									f"[WARNING] Step 6: WebAgent malicious signal ({', '.join(dangerous_urls[:3])}) - issue_count={issue_count}"
+								)
 							else:
-								termination_reason = "WebAgent detected phishing URL"
-							logs.append(f"[HALT] Step 6: {termination_reason}")
-							decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
+								logs.append(f"[WARNING] Step 6: WebAgent malicious signal - issue_count={issue_count}")
 						elif web_resp.get("risk_score", 0.0) >= thresholds.WEB_AGENT_SUSPICIOUS_THRESHOLD:
 							issue_count += 1
 							logs.append(f"[WARNING] Step 6: WebAgent suspicious - issue_count={issue_count}")
@@ -391,11 +381,7 @@ async def execute_pipeline_deepdive(
 				else:
 					logs.append("[INFO] Step 6: WebAgent skipped - no URLs")
 
-				if not decision.halt:
-					decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
-				if decision.halt and termination_reason is None:
-					termination_reason = decision.reason
-					logs.append(f"[HALT] Step 6: {termination_reason}")
+				# Step 6 contributes evidence/issue_count only; halt policy is restricted to Step 2/3.
 
 		final_status = "DANGER" if decision.halt else final_status_from_issue_count(issue_count)
 

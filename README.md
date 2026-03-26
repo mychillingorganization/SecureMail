@@ -1,9 +1,12 @@
 # SecureMail (Refactored)
 
-SecureMail is a multi-agent email security platform with a production-first structure:
-- Runtime services and inference models are separated from training assets.
-- Database schema and migrations are centralized under `src/db`.
-- Legacy/experimental files are soft-archived in `temporary/`.
+SecureMail is a multi-agent email security platform with production-first structure:
+- Multi-signal threat detection (phishing, malware, URL reputation)
+- Autonomous AI reasoning with LangGraph + Gemini API
+- Microservices architecture (email, file, web, AI, orchestrator)
+- PostgreSQL database with Alembic migrations
+- Web interface with real-time chat and whitelist/blacklist search
+- Docker support for local and cross-platform deployment
 
 ## Project Layout
 

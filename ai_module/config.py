@@ -9,6 +9,9 @@ class AIAgentSettings(BaseSettings):
 
     service_name: str = "ai-agent"
     provider: str = "gemini"
+    # LangGraph autonomous agent with native function calling
+    agent_framework: str = "langgraph"
+    
     request_timeout_seconds: float = thresholds.LLM_REQUEST_TIMEOUT_SECONDS
     autonomous_max_attempts: int = thresholds.MAX_AUTONOMOUS_ATTEMPTS
     autonomous_retry_backoff_seconds: float = thresholds.RETRY_BACKOFF_SECONDS
@@ -26,6 +29,10 @@ class AIAgentSettings(BaseSettings):
     json_reviewer_max_attempts: int = 1
     gemini_primary_rpm_limit: int = 15
     gemma_reviewer_rpm_limit: int = 30
+    
+    # LangGraph agent configuration
+    langgraph_max_iterations: int = 10
+    langgraph_timeout_seconds: float = 60.0
 
 
 @lru_cache(maxsize=1)

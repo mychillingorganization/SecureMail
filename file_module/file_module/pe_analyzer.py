@@ -17,7 +17,7 @@ import struct
 from datetime import datetime, timezone
 from typing import Optional
 
-from models import PeAnalysisResult, PeSection
+from .models import PeAnalysisResult, PeSection
 
 logger = logging.getLogger(__name__)
 
