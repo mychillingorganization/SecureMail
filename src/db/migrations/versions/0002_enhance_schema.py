@@ -244,6 +244,22 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     )
 
+    # 16. scan_history table
+    op.create_table(
+        "scan_history",
+        sa.Column("id", sa.String(length=36), primary_key=True),
+        sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False, server_default="NOW()"),
+        sa.Column("scan_mode", sa.String(length=50), nullable=False),
+        sa.Column("file_name", sa.String(length=255), nullable=False),
+        sa.Column("final_status", sa.String(length=100), nullable=False),
+        sa.Column("issue_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("duration_ms", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("termination_reason", sa.String(length=500), nullable=True),
+        sa.Column("ai_classify", sa.String(length=100), nullable=True),
+    )
+    op.create_index("ix_scan_history_timestamp", "scan_history", ["timestamp"])
+    op.create_index("ix_scan_history_scan_mode", "scan_history", ["scan_mode"])
+
     # Update files table: add risk_level, analysis_id, first_seen, last_analyzed
     op.add_column("files", sa.Column("risk_level", risk_level, nullable=True))
     op.add_column("files", sa.Column("first_seen", sa.DateTime(timezone=True), nullable=True))
@@ -270,6 +286,7 @@ def downgrade() -> None:
     op.drop_column("emails", "correlation_id")
 
     # Drop new tables
+    op.drop_table("scan_history")
     op.drop_table("threat_list_changes")
     op.drop_table("threat_list_updates")
     op.drop_table("model_predictions_log")

@@ -1,22 +1,22 @@
 {
-  "updated_at": "2026-03-25T18:10:07.852286+00:00",
+  "updated_at": "2026-03-26T04:36:27.302995+00:00",
   "sources": {
     "url_csv": {
       "size": 11025564,
-      "mtime_ns": 1774409868829564351
+      "mtime_ns": 1774496959359223610
     },
     "file_csv": {
-      "size": 487471623,
-      "mtime_ns": 1773495742000000000
+      "size": 266,
+      "mtime_ns": 1774499668089171742
     },
     "whitelist_txt": {
       "size": 1406,
-      "mtime_ns": 1774442689245657025
+      "mtime_ns": 1774496959382226263
     }
   },
   "counts": {
     "url_blacklist": 56380,
-    "file_blacklist": 1059794,
+    "file_blacklist": 3,
     "url_whitelist": 87
   }
 }

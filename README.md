@@ -17,17 +17,37 @@ The system is composed of several specialized microservices and components:
 
 *Note: Each service stores its own inference artifacts in its respective `models/` directory, while training code remains in `model_training_pipeline/`.*
 
+## Quick Start (Docker Only)
+
+```bash
+cp .env.example .env
+# Edit .env and set SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY
+
+docker compose up -d --build
+sleep 15
+curl http://localhost:8080/health
+```
+
+Frontend: `http://localhost:5173` (after running `cd UI-UX && npm install && npm run dev`)
+
+---
+
 ## Fresh Setup Guide
 
 ### Prerequisites
 
+**Docker-Only Setup:**
+- Docker & Docker Compose
+- Gemini API key
+
+**Full Local Development:**
 - Python 3.11+
 - PostgreSQL 16+
-- Node.js & npm (for the frontend)
-- Docker & Docker Compose (optional, for containerized deployment)
+- Node.js & npm
+- Docker (for database)
 - Git
 
-Additional compose files available:
+**Additional compose files available:**
 - `docker-compose.dev.yml` for development overrides (reload/debug)
 - `docker-compose.prod.yml` for production-oriented settings
 
@@ -35,7 +55,7 @@ Additional compose files available:
 
 ### 1. Docker Setup (Quick Start)
 
-> **Note:** The default `docker-compose.yml` starts the **PostgreSQL database** and the **Orchestrator** only. The individual microservices (email, file, web, ai) must be started separately on the host machine using `devctl.py` (see Local Setup below).
+> **Note:** The default `docker-compose.yml` starts **PostgreSQL**, **Orchestrator**, and mounts the list files from `src/db/data/lists/`. All migrations run automatically. Individual microservices (email, file, web, ai) must be started separately on the host machine using `devctl.py` if you need the full local development setup (see Local Setup below).
 
 1. Clone the repository and navigate into it.
 2. Copy `.env.example` to `.env` and fill in your API key:
@@ -50,6 +70,19 @@ Additional compose files available:
 4. Check the orchestrator health:
    ```bash
    curl http://localhost:8080/health
+   ```
+5. **(Optional) Import threat lists** (URL/file blacklists and whitelists):
+   ```bash
+   # Ensure list files exist in src/db/data/lists/ (mounted in Docker)
+   docker compose exec app python scripts/import_lists_to_postgres.py
+   ```
+6. Access the frontend:
+   - Install dependencies: `cd UI-UX && npm install`
+   - Start dev server: `npm run dev`
+   - Open: `http://localhost:5173`
+7. To stop the system:
+   ```bash
+   docker compose down
    ```
    Optional development mode with overrides:
    ```bash
@@ -138,53 +171,4 @@ Key configuration variables in the `.env` file (see `.env.example` for full refe
 
 - **Database**: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `SECUREMAIL_DATABASE_URL`
 - **Service URLs**: `SECUREMAIL_EMAIL_AGENT_URL`, `SECUREMAIL_FILE_AGENT_URL`, `SECUREMAIL_WEB_AGENT_URL`, `SECUREMAIL_AI_AGENT_URL`
-- **AI config**: `SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY`, `SECUREMAIL_AI_AGENT_GOOGLE_AI_STUDIO_MODEL`"
-1. Run the setup script to scaffold required directories, create a Python virtual environment, install dependencies, and create a standard `.env` file:
-   ```bash
-   bash setup.sh
-   ```
-2. Edit `.env` and set your `SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY`.
-3. Activate the virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
-4. **Database**: Ensure PostgreSQL is running (or start it via `docker compose up -d postgres`). Then run the database migrations:
-   ```bash
-   alembic -c orchestra/alembic.ini upgrade head
-   ```
-   Optional (DB list seeding): URL/file blacklist and URL whitelist are **not** imported to PostgreSQL by default. To import them:
-   ```bash
-   python scripts/import_lists_to_postgres.py
-   ```
-5. Start all microservices (email, file, web, ai, orchestrator):
-   ```bash
-   python scripts/devctl.py up
-   ```
-   Alternative helper (supports optional frontend startup):
-   ```bash
-   bash scripts/run_app.sh local --frontend
-   ```
-6. Check the status of all services:
-   ```bash
-   python scripts/devctl.py status
-   ```
-7. To stop the local services:
-   ```bash
-   python scripts/devctl.py down
-   ```
-
-#### 2.2 Frontend (UI-UX)
-
-1. Navigate to the frontend directory:
-   ```bash
-   cd UI-UX
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-   The frontend will be available at `http://localhost:5173` by default.
+- **AI config**: `SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY`, `SECUREMAIL_AI_AGENT_GOOGLE_AI_STUDIO_MODEL`
