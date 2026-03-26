@@ -1,0 +1,37 @@
+version: "3.9"
+
+# Development overrides - faster startup, relaxed limits, better logging
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  postgres:
+    environment:
+      POSTGRES_INITDB_ARGS: "-c log_statement=all"
+    healthcheck:
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./orchestra:/app/orchestra
+      - ./src:/app/src
+      - ./email_module:/app/email_module
+      - ./web_module:/app/web_module
+      - ./file_module:/app/file_module
+    command: >
+      sh -c "
+      python -m alembic -c orchestra/alembic.ini upgrade head &&
+      python -m uvicorn orchestra.main:app --host 0.0.0.0 --port 8080 --reload --log-level debug
+      "
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G

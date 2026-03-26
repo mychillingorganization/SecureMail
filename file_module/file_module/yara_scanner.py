@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from models import YaraMatch, YaraScanResult
+from .models import YaraMatch, YaraScanResult
 
 logger = logging.getLogger(__name__)
 

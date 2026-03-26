@@ -22,7 +22,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from models import AnalysisResult, RiskLevel
+from .models import AnalysisResult, RiskLevel
 
 logger = logging.getLogger(__name__)
 

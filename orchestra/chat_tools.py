@@ -143,6 +143,14 @@ async def _check_url_reputation(session: AsyncSession, message: str, settings_ob
     }
     ai_result = await ai_client.analyze(ai_payload)
 
+    # Update verdict based on AI classification if still unknown
+    if verdict == "unknown" and ai_result.get("classify"):
+        ai_classify = str(ai_result.get("classify")).lower()
+        if ai_classify in {"dangerous", "malicious", "suspicious", "phishing"}:
+            verdict = "phishing"
+        elif ai_classify in {"safe", "benign"}:
+            verdict = "safe"
+
     return {
         "entity_type": "url",
         "target": target_value,

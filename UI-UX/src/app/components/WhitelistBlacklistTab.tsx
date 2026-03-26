@@ -36,16 +36,19 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
   const [activeTab, setActiveTab] = useState<ListType>("url");
   const [actionTab, setActionTab] = useState<ActionType>("whitelist");
   const [newItem, setNewItem] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [items, setItems] = useState<WhitelistBlacklistItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
 
   // Fetch items from backend with pagination
   const fetchItems = async (page: number) => {
     setLoading(true);
     setError(null);
+    setIsSearching(false);
     try {
       const skip = (page - 1) * ITEMS_PER_PAGE;
       const response = await fetch(
@@ -71,13 +74,70 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
     }
   };
 
+  // Search items across entire database
+  const searchItems = async (query: string) => {
+    if (!query.trim()) {
+      // If search is cleared, go back to pagination
+      setIsSearching(false);
+      await fetchItems(1);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setIsSearching(true);
+    try {
+      const response = await fetch(
+        `/api/v1/list/search?q=${encodeURIComponent(query)}&action=${actionTab}&type=${activeTab}`,
+        { method: "GET" }
+      );
+      
+      // Handle 400 errors - fall back to pagination
+      if (response.status === 400) {
+        console.warn("Search validation error, falling back to pagination");
+        setIsSearching(false);
+        await fetchItems(1);
+        return;
+      }
+      
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+      
+      const text = await response.text();
+      const data = JSON.parse(text);
+      setItems(data.items || []);
+      setTotalItems(data.total || 0);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Search failed";
+      console.error("Search error:", errMsg);
+      // Fall back to pagination on error
+      setIsSearching(false);
+      setError(null);
+      await fetchItems(1);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     setCurrentPage(1);
+    setSearchQuery("");
+    setIsSearching(false);
   }, [activeTab, actionTab]);
 
   useEffect(() => {
     void fetchItems(currentPage);
   }, [activeTab, actionTab, currentPage]);
+
+  // Handle search query changes
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      void searchItems(searchQuery);
+    } else if (isSearching) {
+      // If search was active but query is now empty, reset to pagination
+      setIsSearching(false);
+      void fetchItems(1);
+    }
+  }, [searchQuery]);
 
   const handleAddItem = async () => {
     if (!newItem.trim()) return;
@@ -179,7 +239,31 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
       </div>
 
       {/* Search & Add */}
-      <div className={cn("border-b px-3 py-2 space-y-1", isFullPage ? "px-4 py-3 space-y-2" : "")}>
+      <div className={cn("border-b px-3 py-2 space-y-2", isFullPage ? "px-4 py-3 space-y-2" : "space-y-1")}>
+        {/* Search Bar */}
+        <div className="relative">
+          <Input
+            type="text"
+            placeholder={`Search ${activeTab === "url" ? "URLs" : "file hashes"}...`}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={cn("w-full", isFullPage ? "h-9 text-sm" : "h-7 text-xs")}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className={cn(
+                "absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-60 hover:opacity-100 transition-opacity",
+                isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+              )}
+              aria-label="Clear search"
+            >
+              <span className="text-xs">✕</span>
+            </button>
+          )}
+        </div>
+
+        {/* Add Item */}
         <div className={cn("relative flex gap-2", isFullPage ? "gap-2" : "")}>
           <div className="flex-1">
             <Input
@@ -210,13 +294,21 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading && items.length === 0 ? (
           <div className={cn("p-2 text-center", isFullPage ? "p-4" : "", isDark ? "text-white/40" : "text-slate-400")}>
-            {isFullPage ? <p className="text-sm">Loading items...</p> : <p className="text-xs">Loading...</p>}
+            {isFullPage ? <p className="text-sm">{isSearching ? "Searching..." : "Loading items..."}</p> : <p className="text-xs">{isSearching ? "Searching..." : "Loading..."}</p>}
           </div>
         ) : error ? (
           <div className={cn("p-2 text-xs text-red-500", isFullPage ? "p-4 text-sm" : "")}>{error}</div>
         ) : items.length === 0 ? (
           <div className={cn("p-2 text-center", isFullPage ? "p-4" : "", isDark ? "text-white/40" : "text-slate-400")}>
-            {isFullPage ? <p className="text-sm">No items in {actionTab}</p> : <p className="text-xs">No items</p>}
+            {isSearching ? (
+              <>
+                {isFullPage ? <p className="text-sm">No results matching "{searchQuery}"</p> : <p className="text-xs">No results</p>}
+              </>
+            ) : (
+              <>
+                {isFullPage ? <p className="text-sm">No items in {actionTab}</p> : <p className="text-xs">No items</p>}
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -255,8 +347,8 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
               ))}
             </ul>
 
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
+            {/* Pagination Controls - only show if not searching */}
+            {!isSearching && totalPages > 1 && (
               <div className={cn("border-t flex items-center justify-between px-2 py-1", isFullPage ? "px-4 py-2" : "", isDark ? "bg-white/5" : "bg-slate-50")}>
                 <div className={cn("text-xs", isDark ? "text-white/60" : "text-slate-600")}>
                   {isFullPage ? `Page ${currentPage} of ${totalPages} (${totalItems} total)` : `${currentPage}/${totalPages}`}
@@ -287,6 +379,13 @@ export function WhitelistBlacklistTab({ isDark: isDarkProp, isFullPage = false }
                     {isFullPage ? "Next" : "Next"}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Search result count */}
+            {isSearching && (
+              <div className={cn("border-t px-2 py-1 text-xs", isFullPage ? "px-4 py-2" : "", isDark ? "bg-white/5 text-white/60" : "bg-slate-50 text-slate-600")}>
+                Found {items.length} matching item{items.length !== 1 ? "s" : ""} in {actionTab}
               </div>
             )}
           </>

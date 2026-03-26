@@ -130,6 +130,7 @@ export function ChatPage() {
   const [contextMode, setContextMode] = useState<"general" | "scan">(() => readContextMode());
   const [dragActive, setDragActive] = useState(false);
   const [scanMode, setScanMode] = useState<"rule" | "llm">(() => readScanMode());
+  const [userAcceptsDanger, setUserAcceptsDanger] = useState(false);
   const [pendingEmlFile, setPendingEmlFile] = useState<File | null>(null);
   const [composerNotice, setComposerNotice] = useState<string | null>(() => {
     const value = readSessionValue(CHAT_COMPOSER_NOTICE_STORAGE_KEY);
@@ -213,7 +214,7 @@ export function ChatPage() {
       } else {
         setDraft("");
         setComposerNotice(null);
-        await submitAttachmentUpload(pendingEmlFile, scanMode, false, text);
+        await submitAttachmentUpload(pendingEmlFile, scanMode, userAcceptsDanger, text);
         setPendingEmlFile(null);
         return;
       }
@@ -511,6 +512,14 @@ export function ChatPage() {
                       ) : null}
                     </div>
                   </div>
+                  <label className="mt-2 flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={userAcceptsDanger}
+                      onChange={(event) => setUserAcceptsDanger(event.target.checked)}
+                    />
+                    Continue scan even if dangerous indicators are found.
+                  </label>
                 </div>
 
                 {activeMessages.length === 0 ? (

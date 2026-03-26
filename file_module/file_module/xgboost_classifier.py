@@ -15,7 +15,7 @@ from typing import Optional
 
 import numpy as np
 
-from models import AnalysisResult, FileType
+from .models import AnalysisResult, FileType
 
 logger = logging.getLogger(__name__)
 

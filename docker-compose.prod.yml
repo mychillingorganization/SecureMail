@@ -1,59 +1,76 @@
+version: "3.9"
+
+# Production-grade docker-compose with resource limits, restart policies, and optimizations
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: securemail-postgres
+    container_name: securemail-postgres-prod
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-securemail}
       POSTGRES_USER: ${POSTGRES_USER:-securemail}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securemail}
-      POSTGRES_INITDB_ARGS: "-c log_replication_commands=off"
+      POSTGRES_INITDB_ARGS: "-c max_connections=100 -c log_replication_commands=off"
     ports:
       - "5432:5432"
     volumes:
-      - securemail_pg_data:/var/lib/postgresql/data
+      - securemail_pg_data_prod:/var/lib/postgresql/data
       - ./src/db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-securemail} -d ${POSTGRES_DB:-securemail}"]
       interval: 10s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
+    restart: always
     networks:
-      - securemail-net
+      - securemail-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "1"
+          memory: 1G
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: securemail-app
+    container_name: securemail-app-prod
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       SECUREMAIL_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-securemail}:${POSTGRES_PASSWORD:-securemail}@postgres:5432/${POSTGRES_DB:-securemail}
-      # Use service names for internal Docker communication
       SECUREMAIL_EMAIL_AGENT_URL: ${SECUREMAIL_EMAIL_AGENT_URL:-http://host.docker.internal:8000}
       SECUREMAIL_FILE_AGENT_URL: ${SECUREMAIL_FILE_AGENT_URL:-http://host.docker.internal:8001}
       SECUREMAIL_WEB_AGENT_URL: ${SECUREMAIL_WEB_AGENT_URL:-http://host.docker.internal:8002}
       SECUREMAIL_AI_AGENT_URL: ${SECUREMAIL_AI_AGENT_URL:-http://host.docker.internal:8003}
+      ENVIRONMENT: production
     ports:
       - "8080:8080"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       start_period: 40s
       retries: 5
-    restart: unless-stopped
+    restart: always
     networks:
-      - securemail-net
+      - securemail-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "1"
+          memory: 1.5G
 
 volumes:
-  securemail_pg_data:
+  securemail_pg_data_prod:
     driver: local
 
 networks:
-  securemail-net:
+  securemail-network:
     driver: bridge
