@@ -233,7 +233,7 @@ async def refresh_lists(force: bool = False) -> dict:
         # Fetch remote with retries
         remote_domains, remote_urls = await _fetch_remote_blacklists_with_retry(
             BLACKLIST_SOURCE_URLS,
-            BLACKLIST_FETCH_TIMEOUT,
+            THREAT_LIST_FETCH_TIMEOUT,
             max_retries=THREAT_LIST_RETRY_MAX,
             initial_backoff=THREAT_LIST_RETRY_BACKOFF_INITIAL,
             max_backoff=THREAT_LIST_RETRY_BACKOFF_MAX,

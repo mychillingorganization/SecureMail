@@ -17,6 +17,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -279,14 +280,18 @@ async def _run_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
     if _model is None:
         raise HTTPException(status_code=503, detail="Model not initialised yet")
 
+    normalized_urls: list[str] = []
+    for idx, raw_url in enumerate(request.urls):
+        normalized_urls.append(_normalize_and_validate_url(raw_url, idx))
+
     start = time.time()
     traces: list[str] = [
-        f"Received {len(request.urls)} URL(s) for email {request.email_id}"
+        f"Received {len(normalized_urls)} URL(s) for email {request.email_id}"
     ]
 
     # Analyse all URLs concurrently (per-item errors are handled in _analyse_url)
     url_results: list[dict[str, Any]] = await asyncio.gather(
-        *[_analyse_url(url) for url in request.urls]
+        *[_analyse_url(url) for url in normalized_urls]
     )
 
     if url_results:
@@ -309,6 +314,46 @@ async def _run_analysis(request: AnalyzeRequest) -> AnalyzeResponse:
         reasoning_trace=traces,
         processing_time_ms=round((time.time() - start) * 1000, 2),
     )
+
+
+def _normalize_and_validate_url(raw_url: str, index: int) -> str:
+    candidate = raw_url.strip()
+    if "://" not in candidate:
+        candidate = f"https://{candidate}"
+
+    parsed = urlparse(candidate)
+    hostname = parsed.hostname
+    if not parsed.scheme or not parsed.netloc or hostname is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_url_hostname",
+                "index": index,
+                "reason": f"Invalid hostname in URL: {raw_url}",
+            },
+        )
+
+    if parsed.scheme not in {"http", "https"}:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_url_hostname",
+                "index": index,
+                "reason": f"Unsupported URL scheme for hostname validation: {raw_url}",
+            },
+        )
+
+    if " " in hostname or ".." in hostname:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_url_hostname",
+                "index": index,
+                "reason": f"Invalid hostname in URL: {raw_url}",
+            },
+        )
+
+    return parsed.geturl()
 
 
 # ── Per-URL analysis pipeline ─────────────────────────────────────────────────
