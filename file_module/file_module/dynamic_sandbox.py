@@ -28,8 +28,8 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from config import settings
-from models import FileType, SandboxResult
+from .config import settings
+from .models import FileType, SandboxResult
 
 logger = logging.getLogger(__name__)
 

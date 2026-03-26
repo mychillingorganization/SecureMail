@@ -19,16 +19,16 @@ from typing import Optional
 
 import magic  # python-magic
 
-from config import settings
-from models import (
+from .config import settings
+from .models import (
     ArchiveAnalysisResult,
     FileType,
     OleAnalysisResult,
     PdfAnalysisResult,
     StaticAnalysisResult,
 )
-from pe_analyzer import analyze_pe
-from yara_scanner import scan_bytes
+from .pe_analyzer import analyze_pe
+from .yara_scanner import scan_bytes
 
 logger = logging.getLogger(__name__)
 

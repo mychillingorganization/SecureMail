@@ -192,12 +192,16 @@ class GeminiProvider:
         Request Gemini API with native function calling support.
         Returns structured response with potential function calls or final decision.
         """
+        # Gemini API format: system_instruction for system context
         req_payload = {
-            "system": system_prompt,
+            "system_instruction": {
+                "parts": [{"text": system_prompt}]
+            },
             "contents": messages,
             "tools": [{"function_declarations": tools}],
             "generationConfig": {
                 "temperature": self._settings.autonomous_temperature,
+                "max_output_tokens": 2048,
             },
         }
         
@@ -284,10 +288,28 @@ class GeminiProvider:
         )
         
         system_prompt = (
-            "You are a security analysis expert. Analyze the provided email/attachment/URL scan data.\n"
-            "Available tools: auth_summary, email_signal, file_signal, web_signal, url_domains, risk_rollup.\n"
-            "You may call any tool in any order. Call risk_rollup as your last tool to aggregate findings.\n"
-            "When ready, respond with a JSON object containing: classify (safe/suspicious/dangerous), reason, summary, risk_factors, danger_reasons, safe_reasons, confidence_percent, should_escalate."
+            "You are a security analysis expert analyzing email scan data.\n"
+            "\n"
+            "The payload structure contains:\n"
+            "- auth: SPF/DKIM/DMARC results (if auth_summary is needed)\n"
+            "- email_agent: Email content analysis results (if email_signal is needed)\n"
+            "- file_module: Attachment analysis results (if file_signal is needed)\n"
+            "- web_module: URL analysis results (if web_signal is needed)\n"
+            "- urls: List of detected URLs (if url_domains is needed)\n"
+            "- issue_count: Count of security signals detected\n"
+            "- provisional_final_status: Current risk level before AI analysis\n"
+            "\n"
+            "Available tools: auth_summary, email_signal, file_signal, web_signal, url_domains, risk_rollup\n"
+            "\n"
+            "Autonomously decide which tools to call based on the data present:\n"
+            "- If auth data exists → call auth_summary\n"
+            "- If email_agent results exist → call email_signal\n"
+            "- If file_module data exists → call file_signal\n"
+            "- If web_module or URLs exist → call web_signal and url_domains\n"
+            "- After analyzing relevant signals → call risk_rollup for final assessment\n"
+            "\n"
+            "Then respond with JSON: {classify, reason, summary, risk_factors, danger_reasons, safe_reasons, confidence_percent, should_escalate}\n"
+            "classify must be: safe, suspicious, or dangerous"
         )
         
         user_message = f"Analyze this security scan:\n{json.dumps(payload.model_dump(), ensure_ascii=False)}"
@@ -298,7 +320,7 @@ class GeminiProvider:
                     await self._respect_rpm_limit()
                     
                     # Build messages with tool history
-                    messages = [{"role": "user", "content": user_message}]
+                    messages = [{"role": "user", "parts": [{"text": user_message}]}]
                     
                     # Append tool results to conversation if we have history
                     if tool_history:
@@ -307,7 +329,7 @@ class GeminiProvider:
                             tool_name = tool_call.get("tool_name", "unknown")
                             result = tool_call.get("result", {})
                             history_text += f"- {tool_name}: {json.dumps(result, ensure_ascii=False)[:200]}...\n"
-                        messages.append({"role": "user", "content": history_text})
+                        messages.append({"role": "user", "parts": [{"text": history_text}]})
                     
                     # Call Gemini with native function calling
                     response_json = await self._request_json_with_tools(

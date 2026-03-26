@@ -378,18 +378,33 @@ async def _save_uploaded_eml_to_temp(file: UploadFile) -> tuple[str, str]:
     if Path(filename).suffix.lower() != ".eml":
         raise HTTPException(status_code=422, detail="Only .eml files are supported")
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".eml") as tmp_file:
+    # Ensure we're at the beginning of the file stream
+    if hasattr(file.file, 'seek'):
+        file.file.seek(0)
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".eml", mode='wb') as tmp_file:
         temp_path = tmp_file.name
-        tmp_file.write(await file.read())
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=422, detail="Uploaded file is empty or unreadable")
+        tmp_file.write(contents)
 
     return filename, temp_path
 
 
 async def _save_uploaded_file_to_temp(file: UploadFile) -> tuple[str, str]:
     filename = file.filename or "uploaded.bin"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix or ".bin") as tmp_file:
+    
+    # Ensure we're at the beginning of the file stream
+    if hasattr(file.file, 'seek'):
+        file.file.seek(0)
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(filename).suffix or ".bin", mode='wb') as tmp_file:
         temp_path = tmp_file.name
-        tmp_file.write(await file.read())
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=422, detail="Uploaded file is empty or unreadable")
+        tmp_file.write(contents)
     return filename, temp_path
 
 
@@ -1172,11 +1187,27 @@ async def send_chat_message_stream(
     )
     session.add(user_message)
     await session.commit()
+    
+    # Refresh and serialize data before closing session
     await session.refresh(conversation)
     await session.refresh(user_message)
-
+    
     conversation_payload = _to_chat_conversation_response(conversation).model_dump()
     user_payload = _to_chat_message_response(user_message).model_dump()
+    conversation_id = conversation.id
+    
+    # Get history before session closes
+    history_stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.conversation_id == conversation_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(10)
+    )
+    history_records = (await session.execute(history_stmt)).scalars().all()
+    history_lines = [
+        f"{(msg.role.value if hasattr(msg.role, 'value') else msg.role)}: {msg.content}"
+        for msg in reversed(history_records)
+    ]
 
     async def event_stream():
         yield _sse_event(
@@ -1197,18 +1228,6 @@ async def send_chat_message_stream(
         if isinstance(maybe_tool, str):
             tool_name = maybe_tool
 
-        history_stmt = (
-            select(ChatMessage)
-            .where(ChatMessage.conversation_id == conversation.id)
-            .order_by(ChatMessage.created_at.desc())
-            .limit(10)
-        )
-        history_records = (await session.execute(history_stmt)).scalars().all()
-        history_lines = [
-            f"{(msg.role.value if hasattr(msg.role, 'value') else msg.role)}: {msg.content}"
-            for msg in reversed(history_records)
-        ]
-
         if "select " in lower_message or "drop table" in lower_message or "update " in lower_message:
             assistant_text = (
                 "I can not execute raw SQL. Please ask for a summary like KPI trends, risky senders/domains, "
@@ -1217,8 +1236,11 @@ async def send_chat_message_stream(
             yield _sse_event("chunk", {"delta": assistant_text})
         elif tool_name:
             try:
-                tool_payload = await run_tool(tool_name, session, message_text, settings)
-                assistant_text = summarize_tool_result(tool_name, tool_payload)
+                # Create new session for tool execution
+                from src.db.database import SessionLocal
+                async with SessionLocal() as tool_session:
+                    tool_payload = await run_tool(tool_name, tool_session, message_text, settings)
+                    assistant_text = summarize_tool_result(tool_name, tool_payload)
             except Exception as exc:
                 tool_name = None
                 tool_payload = None
@@ -1244,23 +1266,45 @@ async def send_chat_message_stream(
                 )
                 yield _sse_event("chunk", {"delta": assistant_text})
 
-        assistant_message = ChatMessage(
-            conversation_id=conversation.id,
-            role=ChatRole.assistant,
-            content=assistant_text,
-            status="sent",
-            tool_name=tool_name,
-            tool_payload=tool_payload,
-        )
-        session.add(assistant_message)
-        conversation.updated_at = datetime.utcnow()
-        conversation.last_message_at = conversation.updated_at
-        await session.commit()
-        await session.refresh(conversation)
-        await session.refresh(assistant_message)
-
-        assistant_payload = _to_chat_message_response(assistant_message).model_dump()
-        final_conversation_payload = _to_chat_conversation_response(conversation).model_dump()
+        # Save assistant message with a fresh session
+        try:
+            from src.db.database import SessionLocal
+            async with SessionLocal() as save_session:
+                assistant_message = ChatMessage(
+                    conversation_id=conversation_id,
+                    role=ChatRole.assistant,
+                    content=assistant_text,
+                    status="sent",
+                    tool_name=tool_name,
+                    tool_payload=tool_payload,
+                )
+                save_session.add(assistant_message)
+                
+                # Update conversation
+                conv = await save_session.get(ChatConversation, conversation_id)
+                if conv:
+                    conv.updated_at = datetime.utcnow()
+                    conv.last_message_at = conv.updated_at
+                
+                await save_session.commit()
+                await save_session.refresh(assistant_message)
+                if conv:
+                    await save_session.refresh(conv)
+                    final_conversation_payload = _to_chat_conversation_response(conv).model_dump()
+                else:
+                    final_conversation_payload = conversation_payload
+                    
+                assistant_payload = _to_chat_message_response(assistant_message).model_dump()
+        except Exception as exc:
+            final_conversation_payload = conversation_payload
+            assistant_payload = {
+                "id": "error",
+                "conversation_id": conversation_id,
+                "role": "assistant",
+                "content": assistant_text,
+                "status": "error",
+                "created_at": datetime.utcnow().isoformat(),
+            }
 
         yield _sse_event(
             "done",
@@ -1589,6 +1633,103 @@ async def upload_chat_file(
 
 
 # Whitelist/Blacklist Management Endpoints
+
+@app.get("/api/v1/list/search")
+async def search_list(
+    q: str = Query(..., min_length=1),
+    action: str = Query(...),
+    type: str = Query(...),
+    session: AsyncSession = Depends(get_db_session)
+):
+    """Search across all whitelist/blacklist items (full database search, not paginated)."""
+    if action not in ["whitelist", "blacklist"]:
+        raise HTTPException(status_code=400, detail="action must be 'whitelist' or 'blacklist'")
+    if type not in ["url", "file_hash"]:
+        raise HTTPException(status_code=400, detail="type must be 'url' or 'file_hash'")
+
+    try:
+        search_query = f"%{q.lower()}%"
+        
+        if type == "url":
+            from orchestra.models import Url
+            from sqlalchemy import func, or_
+            
+            is_whitelisted = action == "whitelist"
+            if is_whitelisted:
+                where_clause = Url.is_whitelisted == True
+            else:
+                where_clause = Url.is_blacklisted == True
+            
+            # Search in both url_hash and raw_url with case-insensitive matching
+            stmt = (
+                select(Url)
+                .where(
+                    where_clause & 
+                    or_(
+                        func.lower(Url.url_hash).like(search_query),
+                        func.lower(Url.raw_url).like(search_query)
+                    )
+                )
+                .order_by(Url.last_seen.desc())
+                .limit(1000)  # Max 1000 results for search
+            )
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+            
+            return {
+                "total": len(items),
+                "query": q,
+                "items": [
+                    {
+                        "id": item.url_hash,
+                        "value": item.raw_url,
+                        "type": type,
+                        "action": action,
+                        "created_at": item.first_seen.isoformat() if item.first_seen else item.last_seen.isoformat(),
+                    }
+                    for item in items
+                ]
+            }
+        else:  # file_hash
+            from orchestra.models import File
+            from sqlalchemy import func
+            
+            is_whitelisted = action == "whitelist"
+            if is_whitelisted:
+                where_clause = File.is_whitelisted == True
+            else:
+                where_clause = File.is_blacklisted == True
+            
+            # Search in file_hash with case-insensitive matching
+            stmt = (
+                select(File)
+                .where(
+                    where_clause & 
+                    func.lower(File.file_hash).like(search_query)
+                )
+                .order_by(File.last_seen.desc())
+                .limit(1000)  # Max 1000 results for search
+            )
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+            
+            return {
+                "total": len(items),
+                "query": q,
+                "items": [
+                    {
+                        "id": item.file_hash,
+                        "value": item.file_hash,
+                        "type": type,
+                        "action": action,
+                        "created_at": item.first_seen.isoformat() if item.first_seen else item.last_seen.isoformat(),
+                    }
+                    for item in items
+                ]
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/list/{action}")
 async def get_list(

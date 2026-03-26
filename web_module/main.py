@@ -21,15 +21,27 @@ from typing import Annotated, Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from .config import THREAT_LIST_REFRESH_INTERVAL
-from .feature_extractor import (
-    HTML_DEFAULT_FEATURES,
-    extract_html_features,
-    extract_url_features,
-    fetch_url_context,
-)
-from .lists import is_blacklisted, is_whitelisted, load_lists, refresh_lists, _refresh_stats
-from .model import MODEL_PATH, PhishingModel
+# Try relative imports first (when run as a package), then fall back to absolute
+try:
+    from .config import THREAT_LIST_REFRESH_INTERVAL
+    from .feature_extractor import (
+        HTML_DEFAULT_FEATURES,
+        extract_html_features,
+        extract_url_features,
+        fetch_url_context,
+    )
+    from .lists import is_blacklisted, is_whitelisted, load_lists, refresh_lists, _refresh_stats
+    from .model import MODEL_PATH, PhishingModel
+except ImportError:
+    from config import THREAT_LIST_REFRESH_INTERVAL
+    from feature_extractor import (
+        HTML_DEFAULT_FEATURES,
+        extract_html_features,
+        extract_url_features,
+        fetch_url_context,
+    )
+    from lists import is_blacklisted, is_whitelisted, load_lists, refresh_lists, _refresh_stats
+    from model import MODEL_PATH, PhishingModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

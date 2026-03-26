@@ -160,7 +160,13 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
             f"DMARC({auth_result.get('dmarc', {}).get('result', 'unknown')}): {auth_result.get('dmarc', {}).get('detail', '')}"
         )
 
-        decision = should_terminate(issue_count=issue_count, auth_failed=auth_failed, malicious_detected=False, reason="Auth Failure: SPF/DKIM/DMARC failed")
+        decision = should_terminate(
+            issue_count=issue_count,
+            auth_failed=auth_failed,
+            malicious_detected=False,
+            reason="Auth Failure: SPF/DKIM/DMARC failed",
+            ignore_issue_threshold=user_accepts_danger,
+        )
         attachment_hashes: list[tuple[str, str]] = []
         if decision.halt:
             termination_reason = decision.reason
@@ -220,6 +226,7 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                 auth_failed=False,
                 malicious_detected=(malicious_hash_detected or malicious_url_hash_detected),
                 reason=termination_reason,
+                ignore_issue_threshold=user_accepts_danger,
             )
 
             if not decision.halt:
@@ -243,7 +250,12 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     issue_count += 1
                     logs.append(f"[WARNING] Step 4: EmailAgent unavailable ({exc}) - issue_count={issue_count}")
 
-                decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                decision = should_terminate(
+                    issue_count=issue_count,
+                    auth_failed=False,
+                    malicious_detected=False,
+                    ignore_issue_threshold=user_accepts_danger,
+                )
                 if decision.halt:
                     termination_reason = decision.reason
                     logs.append(f"[HALT] Step 4: {termination_reason}")
@@ -276,6 +288,7 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                                     auth_failed=False,
                                     malicious_detected=True,
                                     reason=termination_reason,
+                                    ignore_issue_threshold=user_accepts_danger,
                                 )
                                 break
 
@@ -296,7 +309,12 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     logs.append("[INFO] Step 5: FileAgent skipped - no attachments")
 
                 if not decision.halt:
-                    decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                    decision = should_terminate(
+                        issue_count=issue_count,
+                        auth_failed=False,
+                        malicious_detected=False,
+                        ignore_issue_threshold=user_accepts_danger,
+                    )
                 if decision.halt and termination_reason is None:
                     termination_reason = decision.reason
                     logs.append(f"[HALT] Step 5: {termination_reason}")
@@ -324,7 +342,13 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                             flagged = suspicious_urls[0] if suspicious_urls else "unknown-url"
                             termination_reason = f"WebAgent detected phishing URL: {flagged}"
                             logs.append(f"[HALT] Step 6: {termination_reason}")
-                            decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=True, reason=termination_reason)
+                            decision = should_terminate(
+                                issue_count=issue_count,
+                                auth_failed=False,
+                                malicious_detected=True,
+                                reason=termination_reason,
+                                ignore_issue_threshold=user_accepts_danger,
+                            )
                         elif web_risk >= 0.5:
                             issue_count += 1
                             logs.append(f"[WARNING] Step 6: WebAgent suspicious - issue_count={issue_count}")
@@ -337,7 +361,12 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
                     logs.append("[INFO] Step 6: WebAgent skipped - no URLs")
 
                 if not decision.halt:
-                    decision = should_terminate(issue_count=issue_count, auth_failed=False, malicious_detected=False)
+                    decision = should_terminate(
+                        issue_count=issue_count,
+                        auth_failed=False,
+                        malicious_detected=False,
+                        ignore_issue_threshold=user_accepts_danger,
+                    )
                 if decision.halt and termination_reason is None:
                     termination_reason = decision.reason
                     logs.append(f"[HALT] Step 6: {termination_reason}")
