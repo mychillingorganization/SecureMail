@@ -188,28 +188,3 @@ Key configuration variables in the `.env` file (see `.env.example` for full refe
    npm run dev
    ```
    The frontend will be available at `http://localhost:5173` by default.
-
----
-
-### 3. Testing
-
-You can test the system by uploading an `.eml` file via the frontend scanner page or by sending a request directly to the API:
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/scan-upload \
-  -F "file=@path/to/your/email.eml"
-```
-
-Additional useful scan endpoints:
-- `POST /api/v1/scan` (JSON payload with `email_path`)
-- `POST /api/v1/scan-batch` (JSON batch)
-- `POST /api/v1/scan-upload-batch` (multipart batch upload)
-- `POST /api/v1/scan-llm` and `POST /api/v1/scan-upload-llm` (LLM-assisted mode)
-
-## Environment Variables
-
-Key configuration variables in the `.env` file (see `.env.example` for full reference):
-
-- **Database**: `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `SECUREMAIL_DATABASE_URL`
-- **Service URLs**: `SECUREMAIL_EMAIL_AGENT_URL`, `SECUREMAIL_FILE_AGENT_URL`, `SECUREMAIL_WEB_AGENT_URL`, `SECUREMAIL_AI_AGENT_URL`
-- **AI config**: `SECUREMAIL_GOOGLE_AI_STUDIO_API_KEY`, `SECUREMAIL_AI_AGENT_GOOGLE_AI_STUDIO_MODEL`"
