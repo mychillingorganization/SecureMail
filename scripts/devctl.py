@@ -31,22 +31,22 @@ DEFAULT_SCAN_OUTPUT_DIR = ROOT / "orchestra" / "scan_results"
 SERVICES = {
     "email": {
         "health": "http://127.0.0.1:8000/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "email_module.main:app", "--host", "127.0.0.1", "--port", "8000", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "email_module.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "file": {
         "health": "http://127.0.0.1:8001/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "file_module.file_module.main:app", "--host", "127.0.0.1", "--port", "8001", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "file_module.file_module.main:app", "--host", "0.0.0.0", "--port", "8001", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "web": {
         "health": "http://127.0.0.1:8002/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "web_module.main:app", "--host", "127.0.0.1", "--port", "8002", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "web_module.main:app", "--host", "0.0.0.0", "--port", "8002", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "ai": {
         "health": "http://127.0.0.1:8003/health",
-        "cmd": [PYTHON_BIN, "-m", "uvicorn", "ai_module.main:app", "--host", "127.0.0.1", "--port", "8003", "--log-level", "warning"],
+        "cmd": [PYTHON_BIN, "-m", "uvicorn", "ai_module.main:app", "--host", "0.0.0.0", "--port", "8003", "--log-level", "warning"],
         "cwd": ROOT,
     },
     "orchestrator": {
