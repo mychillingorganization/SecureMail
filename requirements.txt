@@ -1,68 +1,77 @@
-# SecureMail - Unified Python dependencies
+# SecureMail - pinned Python dependencies
 
-# Core App (FastAPI + config)
+# Core API and settings
 fastapi==0.115.0
-uvicorn[standard]==0.30.6
 pydantic==2.8.2
 pydantic-settings==2.4.0
 python-multipart==0.0.9
+uvicorn[standard]==0.30.6
 
 # LLM Agent Framework (autonomous AI scanning)
 langgraph>=0.2.0
 
-# Networking
+# Network and HTTP clients
 httpx==0.27.0
 
-# Database (PostgreSQL + migrations) and cache
-SQLAlchemy==2.0.35
+# Database, cache, and migrations
 alembic==1.13.1
 asyncpg==0.29.0
 psycopg2-binary==2.9.9
 redis==5.0.8
+SQLAlchemy==2.0.35
 
-# Email Agent protocol checks
-pyspf==2.0.14
-dkimpy==1.1.3
+# Email protocol verification
 checkdmarc==5.3.1
+dkimpy==1.1.3
+pyspf==2.0.14
 
-# ML and Data
+# Machine learning and data processing
+joblib==1.4.2
 numpy==1.26.4
-scipy==1.14.1
 pandas==2.2.2
 scikit-learn==1.5.2
-joblib==1.4.2
+scipy==1.14.1
 xgboost==2.0.3
 
-# Web/content parsing
+# Web/content extraction and CLI output
 beautifulsoup4==4.12.3
 colorama==0.4.6
 
 # File analysis stack
-pefile==2023.2.7
-yara-python==4.5.1
+olefile==0.47
 oletools==0.60.2
+opencv-python-headless==4.10.0.84
+pefile==2023.2.7
+pdfminer.six==20231228
+Pillow==10.4.0
+py7zr==0.22.0
 pyclamd==0.4.0
-python-magic==0.4.27
 PyMuPDF==1.24.10
 PyPDF2==3.0.1
-pdfminer.six==20231228
-olefile==0.47
-openpyxl==3.1.5
-xlrd==2.0.1
+python-magic==0.4.27
 pyxlsb==1.0.10
-Pillow==10.4.0
 pyzbar==0.1.9
-opencv-python-headless==4.10.0.84
-py7zr==0.22.0
 rarfile==4.2
+xlrd==2.0.1
+yara-python==4.5.1
 
-# Runtime and observability
+# Runtime utilities and observability
 docker==7.1.0
+psutil==6.0.0
 structlog==24.4.0
 watchdog==4.0.1
-psutil==6.0.0
 
-# Tests
+# Test dependencies
 pytest==8.3.2
 pytest-asyncio==0.23.8
 pytest-cov==5.0.0
+
+# Compatibility / optional runtime paths
+# Kept intentionally to avoid breaking environments relying on legacy or optional flows.
+email-validator==2.1.1
+ImageHash==4.3.1
+jellyfish==1.0.3
+lxml==5.1.0
+openpyxl==3.1.5
+python-dotenv==1.0.1
+python-Levenshtein==0.23.0

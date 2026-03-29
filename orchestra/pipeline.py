@@ -75,6 +75,32 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
 
+def _extract_party(parsed: Any, field_name: str) -> str | None:
+    """Return sender/receiver from parsed object with header-based fallback."""
+    direct_value = getattr(parsed, field_name, None)
+    if isinstance(direct_value, str):
+        stripped = direct_value.strip()
+        if stripped:
+            return stripped
+
+    headers = getattr(parsed, "auth_headers", {})
+    if not isinstance(headers, dict):
+        return None
+
+    header_key = "from" if field_name == "sender" else "to"
+    header_val = headers.get(header_key)
+    if isinstance(header_val, list):
+        for item in header_val:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+        return None
+
+    if isinstance(header_val, str):
+        stripped = header_val.strip()
+        return stripped or None
+
+    return None
+
 
 def _status_is_malicious(status: Any) -> bool:
     if status is None:
@@ -382,8 +408,8 @@ async def execute_pipeline(email_path: str, session: AsyncSession, deps: Pipelin
 
         email_row = Email(
             message_id=parsed.subject,
-            sender=parsed.sender,
-            receiver=parsed.receiver,
+            sender=_extract_party(parsed, "sender"),
+            receiver=_extract_party(parsed, "receiver"),
             status=EmailStatus.quarantined if final_status == "DANGER" else EmailStatus.completed,
             total_risk_score=float(issue_count),
             final_verdict=_verdict_type_from_status(final_status),
